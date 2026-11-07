@@ -1,18 +1,12 @@
-// Reads one line sent by the Arduino Uno (see arduino_uno_sensor/uno_frame.h):
-//
-//   $GG,<gas>,<limit>,<clean air>,<state>,<warning>*HH
-//
-// Anything that is not a perfectly formed frame (wrong checksum, wrong field count, a number out
-// of range, an unknown state) is rejected, so electrical noise can never become a fake reading.
-// No Arduino calls in here, so it can be unit-tested on a PC.
+// $GG,<gas>,<limit>,<clean air>,<state>,<warning>*HH
 #pragma once
 #include <stdint.h>
 #include <string.h>
 
 struct UnoFrame {
-  int  gas = 0, threshold = 0, baseline = 0;     // 0-4095 scale
-  char state[16] = "";                           // calibrating | normal | alert | sensor_error
-  char warn[16]  = "";                           // "" | baseline_high | baseline_low
+  int  gas = 0, threshold = 0, baseline = 0;
+  char state[16] = "";
+  char warn[16]  = "";
 };
 
 inline bool unoStateValid(const char* s) {
@@ -24,7 +18,6 @@ inline bool unoWarnValid(const char* s) {
   return s[0] == 0 || strcmp(s, "baseline_high") == 0 || strcmp(s, "baseline_low") == 0;
 }
 
-// Digits only, value 0..4095. Returns -1 when it is not a clean number.
 inline int unoNumber(const char* s) {
   if (!*s) return -1;
   long v = 0;
@@ -43,7 +36,6 @@ inline int unoHex(char c) {
   return -1;
 }
 
-// `line` is one received line without its newline. Returns true and fills `f` only for a valid frame.
 inline bool parseUnoFrame(const char* line, UnoFrame& f) {
   if (!line || line[0] != '$') return false;
   const char* star = strrchr(line, '*');

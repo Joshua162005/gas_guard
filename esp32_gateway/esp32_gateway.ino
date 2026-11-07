@@ -1,22 +1,3 @@
-// GasGuard v3 - ESP32 GATEWAY (the online half: WiFi -> Firebase + phone push)
-//
-// The ESP32 does NOT read the gas sensor any more. The Arduino Uno (see ../arduino_uno_sensor)
-// reads the MQ-2, decides about leaks and sounds the local alarm. Once a second it sends the
-// result over a 3-wire serial link. This sketch checks each message, uploads it to Firebase for the
-// web app and sends ntfy pushes. If WiFi or the internet is down, the Uno's alarm still works.
-//
-// Upload this sketch to the ESP32. Open ONLY this folder in the Arduino IDE
-// (board "ESP32 Dev Module"). No extra libraries are needed.
-//
-// WIRING (full diagram in README.md)
-//   Uno pin 11 (TX) -> 10k -> node -> ESP32 GPIO 16 (RX2);   node -> 10k + 10k in series -> GND
-//   ESP32 GPIO 17 (TX2) -> Uno pin 10 (RX)    (direct; not used yet, kept for later)
-//   Uno GND <-> ESP32 GND                     (required)
-//   The divider is required: the Uno sends 5V and the ESP32 pin only tolerates 3.3V.
-//   Power both boards from one good 5V supply (1-2 A) with the grounds joined.
-//
-// If a WROVER module is used, GPIO 16/17 are taken by its PSRAM: change LINK_RX_PIN/LINK_TX_PIN.
-
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
@@ -26,36 +7,32 @@
 const char* WIFI_SSID = "HUERTE WIFI";
 const char* WIFI_PASS = "sfvigv7580";
 
-// Firebase Realtime Database config (copy these values from the Firebase console)
-const char* DB_URL    = "https://gasguard-0950-default-rtdb.firebaseio.com"; // Realtime Database URL
-const char* API_KEY  = "AIzaSyCn-B4xQGRisNe4U0WDOs6q2fvUAKf9CtE";                  // Web API key (same as in app.js, not secret)
-const char* DEVICE_EMAIL    = "gasguard1@gmail.com";                                 // Authentication > Users > Add user (a dedicated account for the ESP32)
-const char* DEVICE_PASSWORD = "gasguard1";                              // avoid " and \ characters in this password
-const char* DEVICE_ID = "gas-001";                                           // type the same ID in the web app
+const char* DB_URL    = "https://gasguard-0950-default-rtdb.firebaseio.com";
+const char* API_KEY  = "AIzaSyCn-B4xQGRisNe4U0WDOs6q2fvUAKf9CtE";
+const char* DEVICE_EMAIL    = "gasguard1@gmail.com";
+const char* DEVICE_PASSWORD = "gasguard1";  // avoid " and \ characters
+const char* DEVICE_ID = "gas-001";
 
-// Free phone push: install the "ntfy" app, subscribe to this topic (make it unique!)
 const char* NTFY_TOPIC = "gasguard-joshua-change-me";
 
-// ---- Link to the Uno ----------------------------------------------------------------------
-const int           LINK_RX_PIN     = 16;       // RX2  <- Uno pin 11 through the 10k + 20k divider
-const int           LINK_TX_PIN     = 17;       // TX2  -> Uno pin 10 (not used yet)
+const int           LINK_RX_PIN     = 16;
+const int           LINK_TX_PIN     = 17;
 const unsigned long LINK_BAUD       = 9600;
-const unsigned long LINK_TIMEOUT_MS = 10000UL;  // no valid message for 10 s = Uno link lost
+const unsigned long LINK_TIMEOUT_MS = 10000UL;
 
-// ---- Timing / network ---------------------------------------------------------------------
-const unsigned long SEND_INTERVAL_MS = 5000UL;     // Firebase update (also sent at once when the state changes)
-const unsigned long PUSH_REPEAT_MS   = 60000UL;    // phone push repeats once a minute during a leak
-const unsigned long RELOGIN_MS       = 3000000UL;  // Firebase tokens last 60 min, refresh at 50
+const unsigned long SEND_INTERVAL_MS = 5000UL;
+const unsigned long PUSH_REPEAT_MS   = 60000UL;
+const unsigned long RELOGIN_MS       = 3000000UL;
 const unsigned long HTTP_TIMEOUT_MS  = 4000UL;
-const unsigned long WIFI_RESTART_MS  = 1800000UL;  // reboot if WiFi is gone 30 min (never during a leak)
+const unsigned long WIFI_RESTART_MS  = 1800000UL;
 const unsigned long SENSOR_FAULT_PUSH_MS = 120000UL;
 
-// ---- Latest message from the Uno, shared between loop() (core 1) and the network task (core 0)
+// written by loop() on core 1, read by netTask on core 0
 struct Snapshot {
   int  gas = 0, threshold = 0, baseline = 0;
   char state[16] = "calibrating";
   char warn[16]  = "";
-  bool hasFrame = false;                 // at least one valid message received since boot
+  bool hasFrame = false;
   unsigned long lastFrameMs = 0;
 };
 Snapshot snap;
@@ -74,7 +51,6 @@ bool linkLost(const Snapshot& s, unsigned long now) {
   return !s.hasFrame || (now - s.lastFrameMs) > LINK_TIMEOUT_MS;
 }
 
-// ===== Reading the Uno (non-blocking, called from loop) =====================================
 unsigned long badFrames = 0;
 void readUnoLink() {
   static char line[80];
@@ -101,21 +77,19 @@ void readUnoLink() {
     } else if (n < sizeof(line) - 1) {
       line[n++] = c;
     } else {
-      n = 0;                              // too long to be ours: start over
+      n = 0;
     }
   }
 }
 
-// ===== Network (runs on its own core, so a slow WiFi never blocks reading the Uno) ==========
 String idToken = "";
-WiFiClientSecure fbClient;                 // kept open between updates: much faster and lighter than a new TLS handshake each time
+WiFiClientSecure fbClient;
 unsigned long lastLogin = 0, lastSend = 0, nextLoginTry = 0, nextWifiKick = 0, wifiLostAt = 0;
 unsigned long nextPushAt = 0, sensorFaultSince = 0;
 bool alertWasOn = false, faultPushed = false;
 char lastSentState[16] = "";
 int failStreak = 0;
 
-// Tiny JSON helper so no extra library is needed: returns the string value of "key".
 String jsonString(const String& json, const char* key) {
   String pat = String("\"") + key + "\"";
   int k = json.indexOf(pat);
@@ -133,7 +107,7 @@ bool wifiOk() {
   if (WiFi.status() == WL_CONNECTED) { wifiLostAt = 0; return true; }
   unsigned long now = millis();
   if (!wifiLostAt) wifiLostAt = now;
-  if (now - nextWifiKick > 15000UL) {      // WiFi.begin again if the router did not take us back
+  if (now - nextWifiKick > 15000UL) {
     nextWifiKick = now;
     Serial.println("WiFi down, reconnecting...");
     WiFi.disconnect(false);
@@ -144,7 +118,7 @@ bool wifiOk() {
 }
 
 bool firebaseLogin() {
-  WiFiClientSecure client; client.setInsecure();   // NOTE: skips certificate checks. Fine for a hobby project, see README.
+  WiFiClientSecure client; client.setInsecure();   // skips TLS certificate checks
   HTTPClient http;
   http.setTimeout(HTTP_TIMEOUT_MS);
   http.setConnectTimeout(HTTP_TIMEOUT_MS);
@@ -167,7 +141,6 @@ bool firebaseLogin() {
   return idToken.length() > 0;
 }
 
-// Returns true if Firebase accepted the reading.
 bool sendReading(const Snapshot& s) {
   char body[420];
   snprintf(body, sizeof(body),
@@ -192,7 +165,6 @@ bool sendReading(const Snapshot& s) {
     if (code == 200 || code == 204) { failStreak = 0; return true; }
     if (code == 401 || code == 403) {
       if (resp.indexOf("ermission denied") >= 0) {
-        // The login worked but the database rules refuse the write. Logging in again will not fix it.
         Serial.println("Firebase: PERMISSION DENIED. Publish database.rules.json in the Firebase console.");
         nextLoginTry = millis() + 30000UL;
       } else {
@@ -202,10 +174,10 @@ bool sendReading(const Snapshot& s) {
       return false;
     }
     Serial.printf("Firebase send failed: %d (attempt %d)\n", code, attempt + 1);
-    fbClient.stop();                        // connection went stale: drop it and retry once on a fresh one
+    fbClient.stop();
   }
   failStreak++;
-  if (failStreak >= 6) {                    // 6 failed rounds in a row: restart the WiFi link
+  if (failStreak >= 6) {
     failStreak = 0;
     Serial.println("Too many failures, restarting WiFi");
     WiFi.disconnect(false);
@@ -224,7 +196,7 @@ bool sendPush(const char* title, const char* msg, const char* priority, const ch
   http.addHeader("Priority", priority);
   http.addHeader("Tags", tags);
   int code = http.POST(msg);
-  Serial.printf("ntfy: %d\n", code);         // 200 = push sent
+  Serial.printf("ntfy: %d\n", code);
   http.end();
   return code == 200;
 }
@@ -232,8 +204,7 @@ bool sendPush(const char* title, const char* msg, const char* priority, const ch
 void handlePushes(const Snapshot& s) {
   unsigned long now = millis();
 
-  // No messages from the Uno: we do not know the air quality. The Uno still sounds its own alarm.
-  // Do not announce "back to normal" here: silence is not proof that a leak is over.
+  // silence is not proof a leak is over: no "back to normal" push here
   if (linkLost(s, now)) {
     if (!sensorFaultSince) sensorFaultSince = now;
     if (!faultPushed && now - sensorFaultSince > SENSOR_FAULT_PUSH_MS) {
@@ -250,14 +221,13 @@ void handlePushes(const Snapshot& s) {
       char msg[120];
       snprintf(msg, sizeof(msg), "Gas level %d (limit %d). Open windows and turn off your LPG tank now.", s.gas, s.threshold);
       bool ok = sendPush("GAS LEAK DETECTED!", msg, "urgent", "rotating_light");
-      nextPushAt = now + (ok ? PUSH_REPEAT_MS : 10000UL);   // a failed push is retried after 10 s, not a minute
+      nextPushAt = now + (ok ? PUSH_REPEAT_MS : 10000UL);
     }
   } else if (alertWasOn) {
     alertWasOn = false;
     sendPush("Gas level back to normal", "The reading dropped below the leak limit.", "default", "white_check_mark");
   }
 
-  // A dead MQ-2 means no protection at all, so say so.
   if (isSensorError(s)) {
     if (!sensorFaultSince) sensorFaultSince = now;
     if (!faultPushed && now - sensorFaultSince > SENSOR_FAULT_PUSH_MS) {
@@ -276,14 +246,12 @@ void netLoop() {
   }
 
   Snapshot s = getSnapshot();
-  // Only upload live data. With the link down nothing is sent, so the web app shows "Sensor offline"
-  // (or keeps a leak alarm on if the last report was a leak) instead of an old reading.
   if (!linkLost(s, now) && (strcmp(s.state, lastSentState) != 0 || now - lastSend >= SEND_INTERVAL_MS)) {
     if ((long)(now - nextLoginTry) >= 0) {
       bool ok = sendReading(s);
       Serial.printf("Firebase: %s\n", ok ? "ok" : "failed");
       if (ok) { strcpy(lastSentState, s.state); lastSend = now; }
-      else    { lastSend = now - SEND_INTERVAL_MS + 2000UL; }    // retry in 2 s
+      else    { lastSend = now - SEND_INTERVAL_MS + 2000UL; }
     }
   }
   handlePushes(s);
@@ -293,19 +261,18 @@ void netTask(void*) {
   for (;;) { netLoop(); vTaskDelay(pdMS_TO_TICKS(200)); }
 }
 
-// ===== Arduino entry points ================================================================
 void setup() {
   Serial.begin(115200);
   Serial2.begin(LINK_BAUD, SERIAL_8N1, LINK_RX_PIN, LINK_TX_PIN);
   snapLock = xSemaphoreCreateMutex();
-  fbClient.setInsecure();                       // the long-lived Firebase connection (see the note in firebaseLogin)
+  fbClient.setInsecure();
 
-  // WiFi is started here but NOT waited for: reading the Uno must never wait for the router.
+  // do not wait for WiFi: reading the Uno must never block on the router
   WiFi.mode(WIFI_STA);
   WiFi.persistent(false);
   WiFi.setAutoReconnect(true);
-  WiFi.setSleep(false);                         // modem sleep causes dropped connections
-  WiFi.setTxPower(WIFI_POWER_15dBm);            // lower it again only if you still get brown-outs
+  WiFi.setSleep(false);
+  WiFi.setTxPower(WIFI_POWER_15dBm);
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 
   xTaskCreatePinnedToCore(netTask, "net", 16384, NULL, 1, NULL, 0);

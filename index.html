@@ -14,7 +14,6 @@
 </head>
 <body>
 
-<!-- LOGIN / SIGNUP -->
 <section id="auth" class="auth hidden">
   <img src="logo.png?v=2" alt="" class="logo-lg" width="72" height="72">
   <h1>GasGuard</h1>
@@ -27,7 +26,6 @@
   <p style="margin-top:16px"><span id="swapText">No account yet?</span> <button id="swap" class="link">Sign up</button></p>
 </section>
 
-<!-- DASHBOARD -->
 <section id="app" class="hidden">
   <header>
     <span class="brand"><img src="logo.png?v=2" alt="" width="30" height="30"><b>GasGuard</b></span>
@@ -63,7 +61,6 @@
   </main>
 </section>
 
-<!-- LEAK POPUP (shown when a gas leak is detected) -->
 <div id="leakPopup" class="popup hidden" role="alertdialog" aria-modal="true" aria-labelledby="popTitle">
   <div class="popup-box">
     <h2 id="popTitle">GAS LEAK DETECTED!</h2>
@@ -74,12 +71,10 @@
   </div>
 </div>
 
-<!-- Firebase SDKs -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
 
-<!-- App Logic -->
 <script src="app.js"></script>
 
 </body>

@@ -1,11 +1,6 @@
-// Builds the one-line message the Uno sends to the ESP32 once per second.
-//
-//   $GG,<gas>,<limit>,<clean air>,<state>,<warning>*HH\n
-//
-// The three numbers use the 0-4095 scale the web app expects (the Uno's 0-1023 reading x 4).
-// HH is the XOR of every character between '$' and '*', in hex. The ESP32 drops any line whose
-// checksum does not match, so noise on the wire can never look like a real reading.
-// Keep this file identical in meaning to esp32_gateway/uno_link.h (that one reads the frame).
+// $GG,<gas>,<limit>,<clean air>,<state>,<warning>*HH\n
+// HH = XOR of the characters between '$' and '*', in hex
+// keep in sync with esp32_gateway/uno_link.h
 #pragma once
 #include <stdio.h>
 #include <stdint.h>
@@ -16,7 +11,6 @@ inline uint8_t frameChecksum(const char* s, int n) {
   return x;
 }
 
-// Returns the length written to out, or 0 if it did not fit.
 inline int buildFrame(char* out, int cap, int gas, int limit, int baseline,
                       const char* state, const char* warn) {
   char body[72];

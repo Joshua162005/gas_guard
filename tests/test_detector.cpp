@@ -1,4 +1,3 @@
-// Run on a PC:  g++ -std=c++11 -O1 -o /tmp/t tests/test_detector.cpp && /tmp/t
 #include "../arduino_uno_sensor/gas_detector.h"
 #include <cstdio>
 #include <cstdlib>
@@ -98,7 +97,6 @@ int main(){
     for(int i=0;i<40;i++) s.step(1200+200.0f*(i%2)+noise(15));   // swinging +-200 from power-on
     CHECK(s.d.state()==CALIBRATING,"still calibrating while readings swing"); }
 
-  // ---- Same settings the Uno sketch uses (raw 0-1023 ADC scale) ----
   auto unoCfg=[](){ DetectorConfig c; c.alertDelta=100; c.clearDelta=50; c.absAlarm=900;
     c.baselineMax=800; c.baselineWarnLow=62; c.baselineWarnHigh=650; c.errLow=8; c.errHigh=1012;
     c.onCount=3; c.offCount=10; c.followDelta=62; c.calSpread=30; return c; };

@@ -100,7 +100,7 @@ not the USB pins 0/1.
 
 ## 6. Test
 Hold an unlit lighter near the sensor and release gas without a flame. Within about 3 seconds the buzzer
-sounds and the LED flashes. A moment later the page turns red with sound and ntfy
+sounds a steady high tone and the LED flashes. A moment later the page turns red with sound and ntfy
 pushes an alert. Move the gas away: the alarm clears after about 10 seconds below the clear level, and ntfy sends
 "back to normal". Then unplug the ESP32 power: the Uno alarm must still work.
 
@@ -130,7 +130,7 @@ pushes an alert. Move the gas away: the alarm clears after about 10 seconds belo
 | `baseline_high` | Turn the trimmer anticlockwise (step 5). |
 | False alarms | Raise `ALERT_DELTA` in the Uno sketch, let a new sensor run for hours before trusting it, keep it away from cooking fumes, aerosols and alcohol. |
 | Misses a small leak | Lower `ALERT_DELTA` (not below ~40). |
-| Buzzer is quiet or buzzes strangely | The sketch expects an **active** buzzer (it beeps by itself when powered). A passive buzzer needs `tone()`. |
+| Buzzer is quiet or buzzes strangely | The sketch expects an **active** buzzer (it makes its own tone when powered). A passive buzzer needs `tone()`. |
 | `sensor_error` | AO wire or the sensor VCC/GND is loose. The reading is ~0 (unplugged / no power) or maxed out (short). |
 
 Run the tests on a PC:

@@ -1,4 +1,3 @@
-// Run on a PC:  g++ -std=c++11 -O1 -o /tmp/tl tests/test_link.cpp && /tmp/tl
 // Checks that what the Uno builds is exactly what the ESP32 accepts, and that damage is rejected.
 #include "../arduino_uno_sensor/uno_frame.h"
 #include "../esp32_gateway/uno_link.h"

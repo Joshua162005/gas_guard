@@ -1,4 +1,3 @@
-// ===== Firebase Config =====
 const firebaseConfig = {
   apiKey: "AIzaSyCn-B4xQGRisNe4U0WDOs6q2fvUAKf9CtE",
   authDomain: "gasguard-0950.firebaseapp.com",
@@ -13,22 +12,18 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth(), db = firebase.database();
 
-// Keep the user signed in across refreshes and app restarts (stored on this device until Log out).
 auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
 
 const $ = id => document.getElementById(id);
 let signup = false, unsub = null, wasDanger = false, audioCtx = null, alarmTimer = null;
 let silenced = false, lastGas = 0;
 
-// ===== Server clock + connection state =====
-// "How long ago did the sensor report" must be measured on Firebase's clock, not on this
-// phone's. A phone whose clock is a minute fast used to show "Sensor offline" all the time.
+// use Firebase server time: a wrong phone clock must not show "Sensor offline"
 let serverOffset = 0, online = true;
 const serverNow = () => Date.now() + serverOffset;
 db.ref('.info/serverTimeOffset').on('value', s => { serverOffset = s.val() || 0; });
 db.ref('.info/connected').on('value', s => { online = s.val() === true; tick(); });
 
-// ===== Auth =====
 $('swap').onclick = () => {
   signup = !signup;
   $('nameWrap').classList.toggle('hidden', !signup);
@@ -76,7 +71,6 @@ auth.onAuthStateChanged(user => {
   });
 });
 
-// ===== Device =====
 $('saveDev').onclick = async () => {
   const id = $('dev').value.trim().replace(/[.#$[\]\/]/g, '');
   if (!id) return;
@@ -92,7 +86,6 @@ function watch(id) {
   unsub = () => ref.off('value', cb);
 }
 
-// ===== Render =====
 let lastSeen = 0;
 const OFFLINE_AFTER_S = 40;
 const STALE_AFTER_S = 120;
@@ -112,14 +105,10 @@ function render(d) {
   const gas = d.gas || 0;
   const hasState = typeof d.state === 'string';
   const state = hasState ? d.state : (gas > (d.threshold || 1500) ? 'alert' : 'normal');
-  // The ESP32 already ignores single spikes (several readings in a row) and uses hysteresis,
-  // so its state is trusted as it is. Comparing the gas value to the limit here a second time
-  // made one noisy reading raise a false alarm. Only old firmware without a state field
-  // falls back to the plain comparison (done two lines above).
-  // Data that is already old when it arrives (page opened while the sensor is off, or the last
-  // report was a leak hours ago) is history, not a live leak: show it as offline, never alarm.
+  // trust the device state: re-comparing gas to the limit here caused false alarms
+  // stale data is history, not a live leak: show offline, never alarm
   const ageS = d.updated ? (serverNow() - d.updated) / 1000 : 0;
-  const stale = ageS > STALE_AFTER_S;   // generous, so a phone with a wrong clock cannot hide a live leak
+  const stale = ageS > STALE_AFTER_S;
   const reportedLeak = state === 'alert' || d.alert === true;
   const danger = reportedLeak && (!stale || wasDanger);
   const waiting = !danger && (state === 'calibrating' || state === 'sensor_error');
@@ -144,7 +133,7 @@ function render(d) {
   if (danger && !wasDanger) alarm();
   if (!danger) { stopAlarm(); hidePopup(); silenced = false; }
   wasDanger = danger;
-  if (stale) tick();                    // old data: let the offline card replace the normal one
+  if (stale) tick();
 }
 
 function tick() {
@@ -154,8 +143,6 @@ function tick() {
   if (online && s <= OFFLINE_AFTER_S) return;
 
   if (wasDanger && !silenced) {
-    // The last report was a leak. Losing contact is not proof that it is over, so the alarm
-    // and the red card stay until the sensor reports again or you press Silence.
     $('status').className = 'card status danger';
     $('statusMain').textContent = 'GAS LEAK! (contact lost)';
     $('statusSub').textContent = online
@@ -178,11 +165,6 @@ function tick() {
 }
 setInterval(tick, 1000);
 
-// ===== Alerts =====
-// Browsers cannot "un-grant" notification permission from code, so the on/off switch is
-// our own setting (saved on this device). Alerts are ON by default. When they are OFF the
-// page stays quiet: no popup, no sound, no vibration, no system notification.
-// The red status card always shows a leak, whatever this setting is.
 const PREF_KEY = 'gasguard-alerts';
 
 function prefOn() {
@@ -194,7 +176,7 @@ function setPref(on) {
 function notifSupported() { return 'Notification' in window; }
 function canNotify() { return notifSupported() && Notification.permission === 'granted'; }
 
-// Browsers only allow sound after a tap, so arm the audio on the first tap anywhere.
+// audio only starts after a user tap
 function armAudio() {
   try {
     audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
@@ -241,7 +223,7 @@ async function turnOnAlerts() {
     try { await Notification.requestPermission(); } catch (e) { console.warn(e); }
   }
   refreshAlertUi();
-  if (wasDanger && !silenced) alarm();            // a leak is happening right now
+  if (wasDanger && !silenced) alarm();
   else notify('GasGuard alerts are on', 'You will be notified when a leak is detected.', 'gasguard-test');
 }
 
@@ -256,7 +238,6 @@ function turnOffAlerts() {
 $('notif').onclick = () => prefOn() ? turnOffAlerts() : turnOnAlerts();
 refreshAlertUi();
 
-// Wait for the service worker, but never hang forever if it is not available.
 function swReady() {
   if (!('serviceWorker' in navigator)) return Promise.resolve(null);
   return Promise.race([
@@ -265,8 +246,7 @@ function swReady() {
   ]);
 }
 
-// Android Chrome (and installed PWAs) do not allow "new Notification()".
-// The service worker version works everywhere.
+// new Notification() fails on Android Chrome and installed PWAs, so use the service worker
 async function notify(title, body, tag) {
   if (!prefOn() || !canNotify()) return;
   const opts = { body, tag: tag || 'gasguard-leak', renotify: true, requireInteraction: true,
@@ -285,7 +265,6 @@ async function closeNotifications() {
   } catch (e) { console.warn(e); }
 }
 
-// ----- In-page popup -----
 function showPopup() {
   $('popGas').textContent = lastGas;
   $('leakPopup').classList.remove('hidden');
@@ -297,7 +276,6 @@ $('popSilence').onclick = silenceAlarm;
 $('silence').onclick = silenceAlarm;
 $('popClose').onclick = hidePopup;
 
-// ----- Sound -----
 function beep() {
   if (!audioCtx) return;
   const o = audioCtx.createOscillator(), g = audioCtx.createGain();
@@ -311,7 +289,7 @@ function beep() {
 }
 
 function alarm() {
-  if (!prefOn()) return;                          // alerts switched off: stay quiet
+  if (!prefOn()) return;
   silenced = false;
   showPopup();
   notify('GAS LEAK DETECTED!', 'Open windows and turn off your LPG tank now.');
@@ -331,7 +309,6 @@ function stopAlarm() {
   $('silence').classList.add('hidden');
 }
 
-// Stops the sound and vibration for this leak. It rings again on the next leak.
 function silenceAlarm() {
   silenced = true;
   stopAlarm();
@@ -339,7 +316,6 @@ function silenceAlarm() {
   closeNotifications();
 }
 
-// ===== Register Service Worker (PWA Install Support) =====
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.register('./sw.js')
     .then(() => console.log('GasGuard SW registered'))

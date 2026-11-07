@@ -1,5 +1,3 @@
-/* ===== GasGuard Styles ===== */
-
 :root {
   --blue: #1d4ed8;
   --blue-d: #1e3a8a;
@@ -49,7 +47,6 @@ label {
   margin-top: 14px;
 }
 
-/* ===== Buttons ===== */
 .btn {
   background: var(--blue);
   color: #fff;
@@ -84,7 +81,6 @@ label {
   padding: 0;
 }
 
-/* ===== Error Text ===== */
 .err {
   color: var(--red);
   font-size: 14px;
@@ -92,7 +88,6 @@ label {
   margin-top: 10px;
 }
 
-/* ===== Auth Section ===== */
 .auth {
   max-width: 380px;
   margin: 0 auto;
@@ -110,7 +105,6 @@ label {
   margin: 0 0 10px;
 }
 
-/* ===== Header ===== */
 header {
   display: flex;
   justify-content: space-between;
@@ -124,7 +118,6 @@ header b {
   font-size: 20px;
 }
 
-/* ===== Main / Dashboard ===== */
 main {
   max-width: 520px;
   margin: 0 auto;
@@ -138,7 +131,6 @@ main {
   margin-bottom: 16px;
 }
 
-/* ===== Status Card ===== */
 .status {
   text-align: center;
   transition: background 0.3s;
@@ -178,7 +170,6 @@ main {
   }
 }
 
-/* ===== Gas Bar ===== */
 .bar {
   height: 14px;
   background: var(--blue-l);
@@ -195,7 +186,6 @@ main {
   transition: width 0.4s, background 0.3s;
 }
 
-/* ===== Misc ===== */
 .row {
   display: flex;
   justify-content: space-between;
@@ -225,7 +215,6 @@ main {
   white-space: nowrap;
 }
 
-/* ===== Button variants ===== */
 .btn.secondary {
   background: #fff;
   color: var(--blue);
@@ -252,7 +241,6 @@ main {
   padding: 10px 20px;
 }
 
-/* ===== Leak popup ===== */
 .popup {
   position: fixed;
   inset: 0;
@@ -294,12 +282,10 @@ main {
   to   { transform: scale(1); opacity: 1; }
 }
 
-/* ===== Logo ===== */
 .logo-lg { display: block; width: 72px; height: 72px; margin: 0 0 12px; }
 .brand { display: flex; align-items: center; gap: 10px; }
 .brand img { width: 30px; height: 30px; }
 
-/* ===== Header on small screens ===== */
 header { gap: 10px; }
 header > div { display: flex; align-items: center; gap: 10px; min-width: 0; }
 header .brand { flex-shrink: 0; }
