@@ -1,16 +1,15 @@
-// GasGuard v3 - Arduino Uno: the SENSOR half (MQ-2 + local alarm + LCD)
+// GasGuard v3 - Arduino Uno: the SENSOR half (MQ-2 + local alarm)
 //
 // The Uno reads the MQ-2, decides whether there is a leak, and sounds the local alarm by itself.
 // It works with no WiFi and no internet. Once a second it also sends the result to the ESP32
 // (see ../esp32_gateway), which only forwards it to Firebase and your phone.
 //
 // Upload this sketch to the UNO. Open ONLY this folder in the Arduino IDE.
-// Library needed: "LiquidCrystal I2C" (Library Manager). SoftwareSerial is built in.
+// No extra libraries are needed (SoftwareSerial is built in).
 //
 // WIRING (full diagram in README.md)
 //   MQ-2 VCC -> 5V        MQ-2 GND -> GND        MQ-2 AO -> A1
 //   LED (+ 220 ohm) -> pin 2       Buzzer (active, +) -> pin 3       Buzzer (-) -> GND
-//   LCD I2C: SDA -> A4, SCL -> A5, VCC -> 5V, GND -> GND (address 0x27, change below if yours differs)
 //   Optional "silence" button: pin 4 -> button -> GND (set SILENCE_PIN to -1 if you do not use one)
 //   Link to ESP32:
 //     Uno pin 11 (TX) -> 10k -> node -> ESP32 GPIO 16 (RX2);   node -> 10k + 10k in series -> GND
@@ -20,12 +19,11 @@
 //
 // FIRST-TIME SETUP
 //   1. Leave it powered in clean air for 10+ minutes (a brand-new MQ-2 needs hours, ideally 24 h).
-//   2. After about 3.5 minutes the LCD/Serial Monitor shows the clean-air level. On the dashboard
-//      it is multiplied by 4. Turn the blue trimmer on the MQ-2 board until the clean-air level
+//   2. About 30 seconds after power-on the Serial Monitor (9600) prints the clean-air level. On the
+//      dashboard it is multiplied by 4. Turn the blue trimmer on the MQ-2 board until the clean-air level
 //      is about 200-450 here (800-1800 on the dashboard), then press the Uno reset button.
 
 #include <SoftwareSerial.h>
-#include <LiquidCrystal_I2C.h>
 #include "gas_detector.h"
 #include "uno_frame.h"
 
@@ -36,7 +34,6 @@ const uint8_t BUZZER_PIN  = 3;
 const int8_t  SILENCE_PIN = -1;       // e.g. 4 for a push button to GND, -1 = none
 const uint8_t LINK_RX_PIN = 10;       // from ESP32 TX2 (not used yet)
 const uint8_t LINK_TX_PIN = 11;       // to ESP32 RX2, through the 10k + 20k divider
-const uint8_t LCD_ADDRESS = 0x27;
 
 // ---- Detection tuning (raw 0-1023 ADC scale; the dashboard shows these x 4) ------------
 const float ALERT_DELTA     = 100;    // alarm this far above the learned clean-air level (= 400 on the dashboard)
@@ -44,16 +41,13 @@ const float CLEAR_DELTA     = 50;     // alarm clears below clean air + 50
 const float ABS_ALARM       = 900;    // always alarms above this (backstop if gas was there at power-on)
 const int   ALERT_ON_COUNT  = 3;      // seconds in a row above the limit (clean Uno ADC: 3 is enough)
 const int   ALERT_OFF_COUNT = 10;     // seconds in a row below the clear level
-const unsigned long WARMUP_MS = 180000UL;
 const unsigned long SAMPLE_MS = 1000UL;
 const int   SCALE = 4;                // 0-1023 -> 0-4092 for the web app
 
 SoftwareSerial link(LINK_RX_PIN, LINK_TX_PIN);
-LiquidCrystal_I2C lcd(LCD_ADDRESS, 16, 2);
 
 DetectorConfig makeConfig() {
   DetectorConfig c;
-  c.warmupMs = WARMUP_MS;
   c.alertDelta = ALERT_DELTA;
   c.clearDelta = CLEAR_DELTA;
   c.absAlarm = ABS_ALARM;
@@ -73,7 +67,6 @@ GasDetector detector(makeConfig());
 const char* stateName(State s) {
   switch (s) {
     case SENSOR_ERROR: return "sensor_error";
-    case WARMING_UP:   return "warming_up";
     case CALIBRATING:  return "calibrating";
     case NORMAL:       return "normal";
     case ALERT:        return "alert";
@@ -106,39 +99,18 @@ void updateLocalAlarm(unsigned long now) {
   digitalWrite(LED_PIN, alarm ? beat : (fault && ((now / 1000) % 2) == 0));
 }
 
-void showLcd(int gas, State st, int limit) {
-  char l1[20], l2[20];
-  snprintf(l1, sizeof(l1), "Gas%4d Lim%4d", gas, limit);
-  const char* msg = "Safe";
-  switch (st) {
-    case SENSOR_ERROR: msg = "Sensor error"; break;
-    case WARMING_UP:   msg = "Warming up..."; break;
-    case CALIBRATING:  msg = "Calibrating..."; break;
-    case ALERT:        msg = silenced ? "GAS! (silenced)" : "GAS DETECTED!"; break;
-    default: break;
-  }
-  snprintf(l2, sizeof(l2), "%-16s", msg);
-  lcd.setCursor(0, 0); lcd.print(l1);
-  lcd.print("   ");                                    // wipe leftovers from a longer line
-  lcd.setCursor(0, 1); lcd.print(l2);
-}
-
 void setup() {
   Serial.begin(9600);
   link.begin(9600);
   pinMode(LED_PIN, OUTPUT);
   pinMode(BUZZER_PIN, OUTPUT);
   if (SILENCE_PIN >= 0) pinMode(SILENCE_PIN, INPUT_PULLUP);
-  lcd.init();
-  lcd.backlight();
-  lcd.setCursor(0, 0); lcd.print("GasGuard v3");
-  lcd.setCursor(0, 1); lcd.print("Warming up...");
-  Serial.println(F("GasGuard Uno started. Warming up the MQ-2 for 3 minutes, then learning clean air for 30 s."));
+  Serial.println(F("GasGuard Uno started. Learning the clean-air level for about 30 s: keep gas away from the sensor."));
 }
 
 void loop() {
   static unsigned long lastSample = 0;
-  static State lastState = WARMING_UP;
+  static State lastState = CALIBRATING;
   unsigned long now = millis();
 
   if (now - lastSample >= SAMPLE_MS) {
@@ -155,7 +127,6 @@ void loop() {
                        stateName(st), detector.warn());
     if (n > 0) link.write((const uint8_t*)frame, n);
 
-    showLcd(g, st, limit);
     Serial.print(F("Gas: ")); Serial.print(g);
     Serial.print(F(" | clean air: ")); Serial.print(base);
     Serial.print(F(" | alarm at: ")); Serial.print(limit);

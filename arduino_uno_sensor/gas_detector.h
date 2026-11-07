@@ -3,7 +3,7 @@
 // Why this exists: an MQ-2 is not a calibrated instrument. Its clean-air output moves with
 // temperature, humidity, supply voltage and sensor age, so a fixed number ("alarm above 3250")
 // is wrong sooner or later. This code instead:
-//   1. learns the clean-air level (baseline) after warm-up,
+//   1. learns the clean-air level (baseline) right after power-on,
 //   2. alarms when the reading rises ABOVE that baseline by a set amount,
 //   3. follows slow drift (hours) but never follows a leak (minutes),
 //   4. needs several readings in a row to start and to clear an alarm (no flapping),
@@ -16,10 +16,9 @@
 #include <stdint.h>
 #include <math.h>
 
-enum State { SENSOR_ERROR, WARMING_UP, CALIBRATING, NORMAL, ALERT };
+enum State { SENSOR_ERROR, CALIBRATING, NORMAL, ALERT };
 
 struct DetectorConfig {
-  uint32_t warmupMs         = 180000;   // heater warm-up after power-on, no alerts
   int      calSamples       = 30;       // seconds of clean air used to learn the baseline (max 32)
   float    alertDelta       = 400;      // alarm this far above baseline
   float    clearDelta       = 150;      // alarm clears below baseline + this
@@ -44,16 +43,14 @@ class GasDetector {
   explicit GasDetector(const DetectorConfig& c) : cfg(c) {
     if (cfg.calSamples > 32) cfg.calSamples = 32;
     if (cfg.calSamples < 1)  cfg.calSamples = 1;
-    warmUntil = c.warmupMs;
   }
 
   void update(float v, uint32_t nowMs) {
     // 1. Is the sensor even there?
     if (v < cfg.errLow || v > cfg.errHigh) {
       if (++errRun >= cfg.errCount) {
-        if (st != SENSOR_ERROR) {                 // a fault means a cold start when it comes back
+        if (st != SENSOR_ERROR) {                 // after a fault, learn the clean air again
           calibrated = false; calCount = 0; calIdx = 0;
-          warmUntil = nowMs + cfg.warmupMs;
         }
         st = SENSOR_ERROR; hi = lo = 0; alertOn = false;
       }
@@ -61,10 +58,7 @@ class GasDetector {
     }
     errRun = 0;
 
-    // 2. Heater warm-up: readings are not meaningful yet.
-    if ((int32_t)(nowMs - warmUntil) < 0) { st = WARMING_UP; hi = lo = 0; return; }
-
-    // 3. Learn the clean-air baseline.
+    // 2. Learn the clean-air baseline.
     // A sensor that is still settling (rising or falling) must not set the baseline: a baseline
     // learned while the reading is still creeping up makes the normal rise look like a leak.
     // So the last calSamples readings must stay inside a narrow band before they are trusted.
@@ -95,7 +89,7 @@ class GasDetector {
       return;
     }
 
-    // 4. Normal operation.
+    // 3. Normal operation.
     float level = alarmLevel();
     evaluate(v, level, level - (cfg.alertDelta - cfg.clearDelta));
 
@@ -125,12 +119,12 @@ class GasDetector {
 
  private:
   DetectorConfig cfg;
-  State st = WARMING_UP;
+  State st = CALIBRATING;
   bool alertOn = false, calibrated = false;
   int hi = 0, lo = 0, errRun = 0, calCount = 0, calIdx = 0;
   float baseVal = 0;
   float cal[32];
-  uint32_t warmUntil = 0, calStart = 0;
+  uint32_t calStart = 0;
 
   void evaluate(float v, float level, float clearLevel) {
     if (v > level)            { hi++; lo = 0; }

@@ -122,7 +122,7 @@ function render(d) {
   const stale = ageS > STALE_AFTER_S;   // generous, so a phone with a wrong clock cannot hide a live leak
   const reportedLeak = state === 'alert' || d.alert === true;
   const danger = reportedLeak && (!stale || wasDanger);
-  const waiting = !danger && (state === 'warming_up' || state === 'calibrating' || state === 'sensor_error');
+  const waiting = !danger && (state === 'calibrating' || state === 'sensor_error');
   lastSeen = d.updated || 0;
   lastGas = gas;
   $('popGas').textContent = gas;
@@ -135,8 +135,7 @@ function render(d) {
   $('fill').style.background = danger ? 'var(--red)' : 'var(--blue)';
   box.className = 'card status ' + (danger ? 'danger' : waiting ? 'offline' : 'safe');
   const text = {
-    warming_up:   ['Sensor warming up', 'Readings are not reliable yet. This takes a few minutes.'],
-    calibrating:  ['Calibrating', 'Learning clean-air level. Keep gas away from the sensor.'],
+    calibrating:  ['Calibrating', 'Learning clean-air level (about 30 seconds). Keep gas away from the sensor.'],
     sensor_error: ['Sensor not detected', 'Check the MQ-2 wiring and power.'],
     alert:        ['GAS LEAK!', 'Open windows. Turn off the stove and LPG tank. Do not use switches.']
   }[danger ? 'alert' : state] || ['Safe', 'Air looks normal'];

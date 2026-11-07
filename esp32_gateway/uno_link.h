@@ -11,12 +11,12 @@
 
 struct UnoFrame {
   int  gas = 0, threshold = 0, baseline = 0;     // 0-4095 scale
-  char state[16] = "";                           // warming_up | calibrating | normal | alert | sensor_error
+  char state[16] = "";                           // calibrating | normal | alert | sensor_error
   char warn[16]  = "";                           // "" | baseline_high | baseline_low
 };
 
 inline bool unoStateValid(const char* s) {
-  static const char* const ok[] = { "warming_up", "calibrating", "normal", "alert", "sensor_error" };
+  static const char* const ok[] = { "calibrating", "normal", "alert", "sensor_error" };
   for (unsigned i = 0; i < sizeof(ok) / sizeof(ok[0]); i++) if (strcmp(s, ok[i]) == 0) return true;
   return false;
 }

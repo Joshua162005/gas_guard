@@ -56,44 +56,50 @@ int main(){
     for(int i=0;i<20;i++) s.step(0);
     CHECK(s.d.state()==SENSOR_ERROR,"SENSOR_ERROR reported");
     CHECK(!s.d.alert(),"no alarm from a dead sensor");
-    for(int i=0;i<30;i++) s.step(1200+noise(15));
-    CHECK(s.d.state()==WARMING_UP,"treated as cold start when it returns");
-    for(int i=0;i<400;i++) s.step(1200+noise(15));
-    CHECK(s.d.state()==NORMAL,"back to NORMAL after warm-up+calibration"); }
+    for(int i=0;i<10;i++) s.step(1200+noise(15));
+    CHECK(s.d.state()==CALIBRATING,"learns the clean air again when it returns");
+    for(int i=0;i<60;i++) s.step(1200+noise(15));
+    CHECK(s.d.state()==NORMAL,"back to NORMAL after calibration"); }
 
   printf("T8 one bad sample must not cause a fault\n");
   { Sim s; for(int i=0;i<600;i++) s.step(1200+noise(15)); s.step(0); s.step(1200);
     CHECK(s.d.state()==NORMAL,"single glitch ignored"); }
 
   printf("T9 gas already present when powered on (backstop)\n");
-  { Sim s; for(int i=0;i<125;i++) s.step(3000+noise(20));   // through warm-up, hovering high
+  { Sim s; for(int i=0;i<125;i++) s.step(3000+noise(20));   // hovering high, not yet calibrated
     for(int i=0;i<60;i++) s.step(3800+noise(20));
     CHECK(s.d.alert(),"hard limit alarms even with no baseline"); }
 
-  printf("T10 cold-start transient (high, decaying during warm-up) must not alarm\n");
-  { Sim s; for(int i=0;i<119;i++) s.step(3900-2500.0f*i/119+noise(20));
+  printf("T10 power-on with a still-settling sensor (no warm-up): reading starts high and decays, must not alarm\n");
+  { Sim s; for(int i=0;i<119;i++) s.step(2800-1400.0f*i/119+noise(20));   // below the hard limit
     for(int i=0;i<200;i++) s.step(1400+noise(15));
-    CHECK(s.alerts==0,"no alarm during warm-up transient");
-    CHECK(s.d.state()==NORMAL,"NORMAL afterwards"); printf("  baseline=%.0f\n",s.d.baseline()); }
+    CHECK(s.alerts==0,"no alarm while the reading settles");
+    CHECK(s.d.state()==NORMAL,"NORMAL once steady"); printf("  baseline=%.0f\n",s.d.baseline()); }
+
+  printf("T10b KNOWN LIMIT: a cold sensor that starts ABOVE the hard limit (3600) does alarm until it settles\n");
+  { Sim s; for(int i=0;i<60;i++) s.step(3900-1000.0f*i/60+noise(20));
+    for(int i=0;i<300;i++) s.step(1400+noise(15));
+    printf("  alerts=%d (informational), ends NORMAL=%d\n",s.alerts,(int)(s.d.state()==NORMAL));
+    CHECK(s.d.state()==NORMAL,"recovers to NORMAL on its own"); }
 
   printf("T11 your sensor as-is: clean air ~3100 (pot too high)\n");
   { Sim s; for(int i=0;i<700;i++) s.step(3100+noise(15));
     CHECK(s.alerts==0,"no false alarm"); printf("  warn='%s' alarm level=%.0f\n",s.d.warn(),s.d.alarmLevel());
     CHECK(std::string(s.d.warn())=="baseline_high","warns that baseline is too high"); }
 
-  printf("T12 sensor still settling: creeps up 300 counts over 10 min after warm-up, then stays\n");
+  printf("T12 sensor still settling: creeps up 300 counts over 10 min after power-on, then stays\n");
   { Sim s; for(int i=0;i<200;i++) s.step(1200+noise(15));
     for(int i=0;i<600;i++) s.step(1200+300.0f*i/600+noise(15));
     for(int i=0;i<1800;i++) s.step(1500+noise(15));
     CHECK(s.alerts==0,"no false alarm while the sensor settles"); }
 
   printf("T13 unstable clean air during learning must not set a low baseline\n");
-  { Sim s; for(int i=0;i<181;i++) s.step(1200+noise(15));
-    for(int i=0;i<40;i++) s.step(1200+200.0f*(i%2)+noise(15));   // swinging +-200
+  { Sim s;
+    for(int i=0;i<40;i++) s.step(1200+200.0f*(i%2)+noise(15));   // swinging +-200 from power-on
     CHECK(s.d.state()==CALIBRATING,"still calibrating while readings swing"); }
 
   // ---- Same settings the Uno sketch uses (raw 0-1023 ADC scale) ----
-  auto unoCfg=[](){ DetectorConfig c; c.warmupMs=180000; c.alertDelta=100; c.clearDelta=50; c.absAlarm=900;
+  auto unoCfg=[](){ DetectorConfig c; c.alertDelta=100; c.clearDelta=50; c.absAlarm=900;
     c.baselineMax=800; c.baselineWarnLow=62; c.baselineWarnHigh=650; c.errLow=8; c.errHigh=1012;
     c.onCount=3; c.offCount=10; c.followDelta=62; c.calSpread=30; return c; };
   struct USim { GasDetector d; uint32_t t=0; int alerts=0; bool prev=false; int firstAlertAt=-1;

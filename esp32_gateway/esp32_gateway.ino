@@ -53,7 +53,7 @@ const unsigned long SENSOR_FAULT_PUSH_MS = 120000UL;
 // ---- Latest message from the Uno, shared between loop() (core 1) and the network task (core 0)
 struct Snapshot {
   int  gas = 0, threshold = 0, baseline = 0;
-  char state[16] = "warming_up";
+  char state[16] = "calibrating";
   char warn[16]  = "";
   bool hasFrame = false;                 // at least one valid message received since boot
   unsigned long lastFrameMs = 0;
@@ -171,11 +171,10 @@ bool firebaseLogin() {
 bool sendReading(const Snapshot& s) {
   char body[420];
   snprintf(body, sizeof(body),
-    "{\"gas\":%d,\"threshold\":%d,\"baseline\":%d,\"state\":\"%s\",\"sensorOk\":%s,\"warmingUp\":%s,"
+    "{\"gas\":%d,\"threshold\":%d,\"baseline\":%d,\"state\":\"%s\",\"sensorOk\":%s,"
     "\"alert\":%s,\"warn\":\"%s\",\"rssi\":%d,\"uptime\":%lu,\"fw\":3,\"updated\":{\".sv\":\"timestamp\"}}",
     s.gas, s.threshold, s.baseline, s.state,
     isSensorError(s) ? "false" : "true",
-    strcmp(s.state, "warming_up") == 0 ? "true" : "false",
     isAlert(s) ? "true" : "false",
     s.warn, WiFi.RSSI(), millis() / 1000UL);
 

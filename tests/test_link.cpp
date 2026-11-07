@@ -17,10 +17,10 @@ static bool roundTrip(int g, int t, int b, const char* st, const char* w, UnoFra
 
 int main() {
   printf("L1 every state round-trips\n");
-  const char* states[] = {"warming_up","calibrating","normal","alert","sensor_error"};
+  const char* states[] = {"calibrating","normal","alert","sensor_error"};
   bool all = true;
   for (auto st : states) { UnoFrame f; all &= roundTrip(1200, 2000, 1600, st, "", f) && !strcmp(f.state, st) && f.gas == 1200 && f.threshold == 2000 && f.baseline == 1600; }
-  CHECK(all, "5 states parsed with the right numbers");
+  CHECK(all, "4 states parsed with the right numbers");
 
   printf("L2 warnings and extremes\n");
   { UnoFrame f; CHECK(roundTrip(4092, 3600, 3200, "normal", "baseline_high", f) && !strcmp(f.warn, "baseline_high") && f.gas == 4092, "baseline_high, max values"); }
