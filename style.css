@@ -1,0 +1,295 @@
+/* ===== GasGuard Styles ===== */
+
+:root {
+  --blue: #1d4ed8;
+  --blue-d: #1e3a8a;
+  --blue-l: #eff6ff;
+  --line: #dbe6fb;
+  --ink: #0f1f45;
+  --mute: #5b6b8c;
+  --red: #dc2626;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: Manrope, system-ui, sans-serif;
+  background: #fff;
+  color: var(--ink);
+}
+
+.hidden {
+  display: none !important;
+}
+
+button, input {
+  font: inherit;
+}
+
+input {
+  width: 100%;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  margin-top: 6px;
+}
+
+input:focus, button:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+label {
+  font-size: 14px;
+  font-weight: 600;
+  display: block;
+  margin-top: 14px;
+}
+
+/* ===== Buttons ===== */
+.btn {
+  background: var(--blue);
+  color: #fff;
+  border: 0;
+  border-radius: 10px;
+  padding: 12px 18px;
+  font-weight: 600;
+  cursor: pointer;
+  width: 100%;
+  margin-top: 20px;
+}
+
+.btn:hover {
+  background: var(--blue-d);
+}
+
+.btn.ghost {
+  background: #fff;
+  color: var(--blue);
+  border: 1px solid var(--line);
+  width: auto;
+  margin: 0;
+  padding: 8px 14px;
+}
+
+.link {
+  background: none;
+  border: 0;
+  color: var(--blue);
+  font-weight: 600;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* ===== Error Text ===== */
+.err {
+  color: var(--red);
+  font-size: 14px;
+  min-height: 20px;
+  margin-top: 10px;
+}
+
+/* ===== Auth Section ===== */
+.auth {
+  max-width: 380px;
+  margin: 0 auto;
+  padding: 12vh 20px;
+}
+
+.auth h1 {
+  font-size: 30px;
+  margin: 0 0 4px;
+  color: var(--blue);
+}
+
+.auth p {
+  color: var(--mute);
+  margin: 0 0 10px;
+}
+
+/* ===== Header ===== */
+header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+header b {
+  color: var(--blue);
+  font-size: 20px;
+}
+
+/* ===== Main / Dashboard ===== */
+main {
+  max-width: 520px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.card {
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+
+/* ===== Status Card ===== */
+.status {
+  text-align: center;
+  transition: background 0.3s;
+}
+
+.status.safe {
+  background: var(--blue-l);
+}
+
+.status.danger {
+  background: var(--red);
+  color: #fff;
+  border-color: var(--red);
+  animation: pulse 1s infinite;
+}
+
+.status.offline {
+  background: #f3f4f6;
+}
+
+.status h2 {
+  margin: 6px 0 0;
+  font-size: 28px;
+}
+
+.status small {
+  opacity: 0.8;
+}
+
+@keyframes pulse {
+  50% { opacity: 0.75; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .status.danger {
+    animation: none;
+  }
+}
+
+/* ===== Gas Bar ===== */
+.bar {
+  height: 14px;
+  background: var(--blue-l);
+  border-radius: 8px;
+  overflow: hidden;
+  margin: 14px 0 6px;
+}
+
+.bar i {
+  display: block;
+  height: 100%;
+  width: 0;
+  background: var(--blue);
+  transition: width 0.4s, background 0.3s;
+}
+
+/* ===== Misc ===== */
+.row {
+  display: flex;
+  justify-content: space-between;
+  color: var(--mute);
+  font-size: 14px;
+}
+
+.big {
+  font-size: 44px;
+  font-weight: 800;
+  color: var(--blue);
+}
+
+.set {
+  display: flex;
+  gap: 8px;
+  align-items: flex-end;
+}
+
+.set input {
+  margin: 0;
+}
+
+.set .btn {
+  width: auto;
+  margin: 0;
+  white-space: nowrap;
+}
+
+/* ===== Button variants ===== */
+.btn.secondary {
+  background: #fff;
+  color: var(--blue);
+  border: 1px solid var(--line);
+}
+
+.btn.secondary:hover {
+  background: var(--blue-l);
+}
+
+.btn.danger {
+  background: var(--red);
+}
+
+.btn.danger:hover {
+  background: #b91c1c;
+}
+
+.status .btn.light {
+  background: #fff;
+  color: var(--red);
+  width: auto;
+  margin-top: 14px;
+  padding: 10px 20px;
+}
+
+/* ===== Leak popup ===== */
+.popup {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 31, 69, 0.65);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 100;
+}
+
+.popup-box {
+  background: #fff;
+  border: 3px solid var(--red);
+  border-radius: 18px;
+  max-width: 420px;
+  width: 100%;
+  padding: 24px;
+  text-align: center;
+  animation: pop 0.25s ease-out;
+}
+
+.popup-box h2 {
+  color: var(--red);
+  margin: 0 0 10px;
+  font-size: 26px;
+}
+
+.popup-box p {
+  margin: 0 0 10px;
+}
+
+.popup-box .btn {
+  margin-top: 12px;
+}
+
+@keyframes pop {
+  from { transform: scale(0.9); opacity: 0; }
+  to   { transform: scale(1); opacity: 1; }
+}

@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GasGuard</title>
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#1d4ed8">
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- LOGIN / SIGNUP -->
+<section id="auth" class="auth">
+  <h1>GasGuard</h1>
+  <p id="authSub">Log in to monitor your gas sensor.</p>
+  <div id="nameWrap" class="hidden"><label for="name">Full name</label><input id="name" autocomplete="name"></div>
+  <label for="email">Email</label><input id="email" type="email" autocomplete="email">
+  <label for="pass">Password</label><input id="pass" type="password" autocomplete="current-password" minlength="6">
+  <div id="err" class="err" role="alert"></div>
+  <button id="go" class="btn">Log in</button>
+  <p style="margin-top:16px"><span id="swapText">No account yet?</span> <button id="swap" class="link">Sign up</button></p>
+</section>
+
+<!-- DASHBOARD -->
+<section id="app" class="hidden">
+  <header>
+    <b>GasGuard</b>
+    <div>
+      <span id="hello" style="margin-right:10px;color:var(--mute)"></span>
+      <button id="out" class="btn ghost">Log out</button>
+    </div>
+  </header>
+  <main>
+    <div id="status" class="card status offline">
+      <small id="statusSub">Waiting for sensor</small>
+      <h2 id="statusMain">No data</h2>
+      <button id="silence" class="btn light hidden">Silence alarm</button>
+    </div>
+    <div class="card">
+      <div class="row"><span>Gas level</span><span id="upd">never updated</span></div>
+      <div class="big"><span id="val">0</span> <small style="font-size:16px;color:var(--mute)">/ 4095</small></div>
+      <div class="bar"><i id="fill"></i></div>
+      <div class="row"><span>Safe</span><span>Leak limit: <b id="lim">1500</b></span></div>
+    </div>
+    <div class="card">
+      <label for="dev" style="margin-top:0">Sensor ID</label>
+      <div class="set"><input id="dev" placeholder="e.g. gas-001"><button id="saveDev" class="btn">Save</button></div>
+      <div class="err" id="devMsg" style="color:var(--mute)"></div>
+    </div>
+    <div class="card">
+      <b>Phone alerts</b>
+      <p style="color:var(--mute);font-size:14px;margin:6px 0 12px">Turn on alerts to get a notification, sound and vibration when a leak is detected. Keep this page open, or install the free ntfy app for alerts when it is closed.</p>
+      <button id="notif" class="btn" style="margin:0">Turn on alerts</button>
+      <p id="alertState" style="color:var(--mute);font-size:13px;margin:10px 0 0"></p>
+    </div>
+  </main>
+</section>
+
+<!-- LEAK POPUP (shown when a gas leak is detected) -->
+<div id="leakPopup" class="popup hidden" role="alertdialog" aria-modal="true" aria-labelledby="popTitle">
+  <div class="popup-box">
+    <h2 id="popTitle">GAS LEAK DETECTED!</h2>
+    <p>Gas level: <b id="popGas">0</b></p>
+    <p>Open windows. Turn off the stove and LPG tank. Do not use switches.</p>
+    <button id="popSilence" class="btn danger">Silence alarm</button>
+    <button id="popClose" class="btn secondary">Close</button>
+  </div>
+</div>
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+<!-- App Logic -->
+<script src="app.js"></script>
+
+</body>
+</html>
