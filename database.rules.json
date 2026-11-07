@@ -1,0 +1,13 @@
+{
+  "rules": {
+    "users": {
+      "$uid": { ".read": "auth.uid === $uid", ".write": "auth.uid === $uid" }
+    },
+    "devices": {
+      "$id": {
+        ".read": "auth != null",
+        ".write": "auth != null && auth.token.email === 'gasguard1@gmail.com'"
+      }
+    }
+  }
+}

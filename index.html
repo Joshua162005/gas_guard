@@ -5,14 +5,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>GasGuard</title>
   <link rel="manifest" href="manifest.json">
-  <meta name="theme-color" content="#1d4ed8">
+  <meta name="theme-color" content="#0b3861">
+  <link rel="icon" type="image/png" sizes="64x64" href="favicon.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
 <!-- LOGIN / SIGNUP -->
-<section id="auth" class="auth">
+<section id="auth" class="auth hidden">
+  <img src="logo.png" alt="" class="logo-lg" width="72" height="72">
   <h1>GasGuard</h1>
   <p id="authSub">Log in to monitor your gas sensor.</p>
   <div id="nameWrap" class="hidden"><label for="name">Full name</label><input id="name" autocomplete="name"></div>
@@ -26,7 +29,7 @@
 <!-- DASHBOARD -->
 <section id="app" class="hidden">
   <header>
-    <b>GasGuard</b>
+    <span class="brand"><img src="logo.png" alt="" width="30" height="30"><b>GasGuard</b></span>
     <div>
       <span id="hello" style="margin-right:10px;color:var(--mute)"></span>
       <button id="out" class="btn ghost">Log out</button>
@@ -42,7 +45,8 @@
       <div class="row"><span>Gas level</span><span id="upd">never updated</span></div>
       <div class="big"><span id="val">0</span> <small style="font-size:16px;color:var(--mute)">/ 4095</small></div>
       <div class="bar"><i id="fill"></i></div>
-      <div class="row"><span>Safe</span><span>Leak limit: <b id="lim">1500</b></span></div>
+      <div class="row"><span>Clean air: <b id="base">--</b></span><span>Leak limit: <b id="lim">--</b></span></div>
+      <div class="err" id="hint" style="color:var(--mute)"></div>
     </div>
     <div class="card">
       <label for="dev" style="margin-top:0">Sensor ID</label>

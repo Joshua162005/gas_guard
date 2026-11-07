@@ -13,12 +13,20 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const auth = firebase.auth(), db = firebase.database();
 
-// Always start on the login screen — sign out any cached session immediately
-auth.signOut();
+// Keep the user signed in across refreshes and app restarts (stored on this device until Log out).
+auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(() => {});
 
 const $ = id => document.getElementById(id);
 let signup = false, unsub = null, wasDanger = false, audioCtx = null, alarmTimer = null;
 let silenced = false, lastGas = 0;
+
+// ===== Server clock + connection state =====
+// "How long ago did the sensor report" must be measured on Firebase's clock, not on this
+// phone's. A phone whose clock is a minute fast used to show "Sensor offline" all the time.
+let serverOffset = 0, online = true;
+const serverNow = () => Date.now() + serverOffset;
+db.ref('.info/serverTimeOffset').on('value', s => { serverOffset = s.val() || 0; });
+db.ref('.info/connected').on('value', s => { online = s.val() === true; tick(); });
 
 // ===== Auth =====
 $('swap').onclick = () => {
@@ -86,6 +94,11 @@ function watch(id) {
 
 // ===== Render =====
 let lastSeen = 0;
+const OFFLINE_AFTER_S = 40;
+const HINTS = {
+  baseline_high: 'Clean-air level is too high for accurate readings. Turn the blue trimmer on the MQ-2 board slowly anticlockwise until it is about 800-1800, then restart the ESP32.',
+  baseline_low: 'Clean-air level is very low. Turn the blue trimmer on the MQ-2 board slightly clockwise until it is about 800-1800, then restart the ESP32.'
+};
 
 function render(d) {
   const box = $('status');
@@ -96,19 +109,21 @@ function render(d) {
     return;
   }
   const gas = d.gas || 0;
-  // The ESP32 decides the state (warm-up, calibration, alert). Old firmware has no
-  // state field, so fall back to the plain comparison for it.
-  const state = d.state || (gas > (d.threshold || 1500) ? 'alert' : 'normal');
-  // Safety first: any alert signal wins. The device says alert, or the alert flag is set,
-  // or the reading is over the leak limit while the device still says normal.
-  const overLimit = d.threshold > 0 && gas > d.threshold;
-  const danger = state === 'alert' || d.alert === true || (overLimit && state === 'normal');
+  const hasState = typeof d.state === 'string';
+  const state = hasState ? d.state : (gas > (d.threshold || 1500) ? 'alert' : 'normal');
+  // The ESP32 already ignores single spikes (several readings in a row) and uses hysteresis,
+  // so its state is trusted as it is. Comparing the gas value to the limit here a second time
+  // made one noisy reading raise a false alarm. Only old firmware without a state field
+  // falls back to the plain comparison (done two lines above).
+  const danger = state === 'alert' || d.alert === true;
   const waiting = !danger && (state === 'warming_up' || state === 'calibrating' || state === 'sensor_error');
   lastSeen = d.updated || 0;
   lastGas = gas;
   $('popGas').textContent = gas;
   $('val').textContent = gas;
   $('lim').textContent = d.threshold || '--';
+  $('base').textContent = d.baseline > 0 ? d.baseline : '--';
+  $('hint').textContent = HINTS[d.warn] || '';
   const pct = Math.min(100, gas / 4095 * 100);
   $('fill').style.width = pct + '%';
   $('fill').style.background = danger ? 'var(--red)' : 'var(--blue)';
@@ -126,20 +141,35 @@ function render(d) {
   wasDanger = danger;
 }
 
-setInterval(() => {
+function tick() {
   if (!lastSeen) return;
-  const s = Math.round((Date.now() - lastSeen) / 1000);
+  const s = Math.max(0, Math.round((serverNow() - lastSeen) / 1000));
   $('upd').textContent = s < 60 ? 'updated ' + s + 's ago' : 'updated ' + Math.round(s / 60) + 'm ago';
-  if (s > 30) {
-    $('status').className = 'card status offline';
-    $('statusMain').textContent = 'Sensor offline';
-    $('statusSub').textContent = 'No update in the last 30 seconds';
-    stopAlarm();
-    hidePopup();
-    silenced = false;
-    wasDanger = false;
+  if (online && s <= OFFLINE_AFTER_S) return;
+
+  if (wasDanger) {
+    // The last report was a leak. Losing contact is not proof that it is over, so the alarm
+    // and the red card stay until the sensor reports again or you press Silence.
+    $('status').className = 'card status danger';
+    $('statusMain').textContent = 'GAS LEAK! (contact lost)';
+    $('statusSub').textContent = online
+      ? 'The sensor stopped reporting during a leak. Treat it as a leak.'
+      : 'This phone lost its connection during a leak. Treat it as a leak.';
+    return;
   }
-}, 1000);
+  $('status').className = 'card status offline';
+  if (online) {
+    $('statusMain').textContent = 'Sensor offline';
+    $('statusSub').textContent = 'No update in the last ' + OFFLINE_AFTER_S + ' seconds. Check the sensor power and WiFi.';
+  } else {
+    $('statusMain').textContent = 'No connection';
+    $('statusSub').textContent = 'This phone cannot reach the server, so the sensor status is unknown.';
+  }
+  stopAlarm();
+  hidePopup();
+  silenced = false;
+}
+setInterval(tick, 1000);
 
 // ===== Alerts =====
 // Browsers cannot "un-grant" notification permission from code, so the on/off switch is

@@ -1,11 +1,15 @@
 // GasGuard Service Worker: PWA install + notifications
-const CACHE = 'gasguard-v4';
+const CACHE = 'gasguard-v6';
 const ASSETS = [
   './',
   './index.html',
   './style.css',
   './app.js',
-  './manifest.json'
+  './manifest.json',
+  './logo.png',
+  './favicon.png',
+  './icon-192.png',
+  './icon-512.png'
 ];
 
 // Install: cache core files

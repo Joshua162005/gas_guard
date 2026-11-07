@@ -293,3 +293,8 @@ main {
   from { transform: scale(0.9); opacity: 0; }
   to   { transform: scale(1); opacity: 1; }
 }
+
+/* ===== Logo ===== */
+.logo-lg { display: block; width: 72px; height: 72px; margin: 0 0 12px; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand img { width: 30px; height: 30px; }
