@@ -40,12 +40,12 @@ const int LED_PIN    = 27;   // set to -1 if you do not use one.
 // ---- Detection tuning (0-4095 scale, see gas_detector.h) -------------------------------
 // The alarm level is the learned clean-air level + ALERT_DELTA, so it follows your sensor
 // instead of being a fixed number.  More sensitive: lower ALERT_DELTA.  Fewer false alarms: raise it.
-const float ALERT_DELTA       = 300;
+const float ALERT_DELTA       = 400;
 const float CLEAR_DELTA       = 150;      // alarm clears below clean air + 150
 const float ABS_ALARM         = 3600;     // hard limit, always alarms (backstop)
-const int   ALERT_ON_COUNT    = 3;        // seconds in a row above the limit
+const int   ALERT_ON_COUNT    = 5;        // seconds in a row above the limit
 const int   ALERT_OFF_COUNT   = 10;       // seconds in a row below the clear level
-const unsigned long WARMUP_MS = 120000UL; // no alerts while the heater warms up after power-on
+const unsigned long WARMUP_MS = 180000UL; // no alerts while the heater warms up after power-on
 
 // ---- Timing / network -----------------------------------------------------------------
 const unsigned long SAMPLE_MS        = 1000UL;     // sensor is read every second, independent of WiFi

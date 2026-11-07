@@ -40,10 +40,10 @@ int main(){
     printf("  alarm starts during hover: %d\n", s.alerts-a0);
     CHECK(s.alerts-a0<=2,"at most 2 alarm starts while hovering at the limit"); }
 
-  printf("T5 leak ramping +300 over 10 min\n");
+  printf("T5 leak ramping +600 over 10 min\n");
   { Sim s; for(int i=0;i<600;i++) s.step(1200+noise(15));
-    for(int i=0;i<600;i++) s.step(1200+300.0f*i/600+noise(15));
-    for(int i=0;i<120;i++) s.step(1500+100+noise(15));
+    for(int i=0;i<600;i++) s.step(1200+600.0f*i/600+noise(15));
+    for(int i=0;i<120;i++) s.step(1800+100+noise(15));
     CHECK(s.alerts>=1,"10-minute ramp detected"); }
 
   printf("T6 very slow leak, +300 over 3 hours (documented limitation: drift tracking may absorb it)\n");
@@ -80,6 +80,17 @@ int main(){
   { Sim s; for(int i=0;i<700;i++) s.step(3100+noise(15));
     CHECK(s.alerts==0,"no false alarm"); printf("  warn='%s' alarm level=%.0f\n",s.d.warn(),s.d.alarmLevel());
     CHECK(std::string(s.d.warn())=="baseline_high","warns that baseline is too high"); }
+
+  printf("T12 sensor still settling: creeps up 300 counts over 10 min after warm-up, then stays\n");
+  { Sim s; for(int i=0;i<200;i++) s.step(1200+noise(15));
+    for(int i=0;i<600;i++) s.step(1200+300.0f*i/600+noise(15));
+    for(int i=0;i<1800;i++) s.step(1500+noise(15));
+    CHECK(s.alerts==0,"no false alarm while the sensor settles"); }
+
+  printf("T13 unstable clean air during learning must not set a low baseline\n");
+  { Sim s; for(int i=0;i<181;i++) s.step(1200+noise(15));
+    for(int i=0;i<40;i++) s.step(1200+200.0f*(i%2)+noise(15));   // swinging +-200
+    CHECK(s.d.state()==CALIBRATING,"still calibrating while readings swing"); }
 
   printf("\n%s (%d failures)\n", fails?"FAILED":"ALL PASSED", fails); return fails?1:0;
 }

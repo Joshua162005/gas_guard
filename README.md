@@ -44,7 +44,7 @@ core 2.0.x and 3.x. Open the Serial Monitor at 115200.
 
 ## 5. Calibrate once (this is what makes it accurate)
 1. Power the sensor in clean air and leave it running 10+ minutes (a brand-new MQ-2 needs hours, ideally 24 h).
-2. The Serial Monitor prints `clean air: NNNN` after about 2.5 minutes (2 min warm-up + 30 s learning).
+2. The Serial Monitor prints `clean air: NNNN` after about 3.5 minutes (3 min warm-up + 30 s learning).
 3. Turn the blue trimmer on the MQ-2 board until the clean-air value is **about 800-1800**, then reboot the ESP32.
    Above ~2600 the ESP32's ADC is badly compressed and gas barely changes the reading, and the sketch/web app
    will show a `baseline_high` warning. Very low values (<250) lose resolution and show `baseline_low`.
@@ -57,9 +57,9 @@ after about 10 seconds below the clear level, and ntfy sends "back to normal".
 ## How the alarm decides
 - The sensor is read every second, on its own CPU core, so slow WiFi can never delay the alarm.
 - Each reading is 32 calibrated samples with spikes removed (the plain ESP32 `analogRead` is noisy and non-linear).
-- After warm-up the sketch learns the **clean-air level**. Alarm = clean air + 300 (`ALERT_DELTA`). The clean-air
+- After warm-up the sketch learns the **clean-air level**. Alarm = clean air + 400 (`ALERT_DELTA`). The clean-air
   level follows slow drift from temperature and humidity (tens of minutes) but not a leak (seconds to minutes).
-- 3 readings in a row above the limit start the alarm, 10 in a row below the clear level stop it (no flapping).
+- 5 readings in a row above the limit start the alarm, 10 in a row below the clear level stop it (no flapping).
 - Above 3600 (`ABS_ALARM`) it always alarms, even if gas was already present at power-on.
 - A disconnected or shorted sensor shows "Sensor not detected" and sends a push after 2 minutes instead of looking "Safe".
 - When the sensor stops reporting during a leak, the app keeps the alarm on and says contact was lost.

@@ -1,5 +1,5 @@
 // GasGuard Service Worker: PWA install + notifications
-const CACHE = 'gasguard-v6';
+const CACHE = 'gasguard-v7';
 const ASSETS = [
   './',
   './index.html',
@@ -8,6 +8,7 @@ const ASSETS = [
   './manifest.json',
   './logo.png',
   './favicon.png',
+  './favicon.ico',
   './icon-192.png',
   './icon-512.png'
 ];

@@ -17,9 +17,9 @@
 enum State { SENSOR_ERROR, WARMING_UP, CALIBRATING, NORMAL, ALERT };
 
 struct DetectorConfig {
-  uint32_t warmupMs         = 120000;   // heater warm-up after power-on, no alerts
+  uint32_t warmupMs         = 180000;   // heater warm-up after power-on, no alerts
   int      calSamples       = 30;       // seconds of clean air used to learn the baseline (max 64)
-  float    alertDelta       = 300;      // alarm this far above baseline
+  float    alertDelta       = 400;      // alarm this far above baseline
   float    clearDelta       = 150;      // alarm clears below baseline + this
   float    absAlarm         = 3600;     // always alarm above this, whatever the baseline
   float    baselineMax      = 3200;     // the baseline is never allowed above this
@@ -27,11 +27,14 @@ struct DetectorConfig {
   float    baselineWarnHigh = 2600;     // report "baseline_high" above this (ADC is inaccurate up there)
   float    errLow           = 30;       // below this: sensor unplugged or no power
   float    errHigh          = 4050;     // above this: shorted
-  int      onCount          = 3;        // readings in a row above the limit to start the alarm
+  int      onCount          = 5;        // readings in a row above the limit to start the alarm
   int      offCount         = 10;       // readings in a row below the clear level to stop it
   int      errCount         = 5;        // bad readings in a row to declare a sensor fault
   float    fastAlpha        = 0.02f;    // baseline follows a falling reading in ~50 s
-  float    slowAlpha        = 1.0f / 1200.0f;  // and a slowly rising one in ~20 min
+  float    slowAlpha        = 1.0f / 600.0f;   // and a slowly rising one in ~10 min
+  float    followDelta      = 250;      // ...as long as it is no more than this above the baseline
+  float    calSpread        = 120;      // clean-air samples must stay within this band to be trusted
+  uint32_t calTimeoutMs     = 600000;   // accept the best estimate after this long even if still noisy
 };
 
 class GasDetector {
@@ -47,7 +50,7 @@ class GasDetector {
     if (v < cfg.errLow || v > cfg.errHigh) {
       if (++errRun >= cfg.errCount) {
         if (st != SENSOR_ERROR) {                 // a fault means a cold start when it comes back
-          calibrated = false; calCount = 0;
+          calibrated = false; calCount = 0; calIdx = 0;
           warmUntil = nowMs + cfg.warmupMs;
         }
         st = SENSOR_ERROR; hi = lo = 0; alertOn = false;
@@ -60,16 +63,31 @@ class GasDetector {
     if ((int32_t)(nowMs - warmUntil) < 0) { st = WARMING_UP; hi = lo = 0; return; }
 
     // 3. Learn the clean-air baseline.
+    // A sensor that is still settling (rising or falling) must not set the baseline: a baseline
+    // learned while the reading is still creeping up makes the normal rise look like a leak.
+    // So the last calSamples readings must stay inside a narrow band before they are trusted.
     if (!calibrated) {
       float level = cfg.absAlarm;                 // only the hard limit applies until learned
-      evaluate(v, level, level - (cfg.alertDelta - cfg.clearDelta));
-      if (!alertOn && v < level - (cfg.alertDelta - cfg.clearDelta) && hi == 0) {
-        cal[calCount++] = v;                      // never learn from a gassy reading
+      float clearLevel = level - (cfg.alertDelta - cfg.clearDelta);
+      evaluate(v, level, clearLevel);
+      if (!alertOn && v < clearLevel && hi == 0) {
+        if (calCount == 0) calStart = nowMs;
+        cal[calIdx] = v;                          // never learn from a gassy reading
+        calIdx = (calIdx + 1) % cfg.calSamples;
+        if (calCount < cfg.calSamples) calCount++;
         if (calCount >= cfg.calSamples) {
-          baseVal = median(cal, calCount);
-          if (baseVal > cfg.baselineMax) baseVal = cfg.baselineMax;
-          calibrated = true;
+          float mn = cal[0], mx = cal[0];
+          for (int i = 1; i < calCount; i++) { if (cal[i] < mn) mn = cal[i]; if (cal[i] > mx) mx = cal[i]; }
+          bool steady = (mx - mn) <= cfg.calSpread;
+          bool tooLong = (uint32_t)(nowMs - calStart) >= cfg.calTimeoutMs;
+          if (steady || tooLong) {
+            baseVal = median(cal, calCount);
+            if (baseVal > cfg.baselineMax) baseVal = cfg.baselineMax;
+            calibrated = true;
+          }
         }
+      } else if (alertOn || v >= clearLevel) {
+        calCount = 0; calIdx = 0;                 // gas around: start the learning again
       }
       st = alertOn ? ALERT : (calibrated ? NORMAL : CALIBRATING);
       return;
@@ -82,7 +100,7 @@ class GasDetector {
     // The baseline follows drift, but is frozen while a leak builds up or is active.
     if (!alertOn && hi == 0) {
       if (v < baseVal)                          baseVal += (v - baseVal) * cfg.fastAlpha;
-      else if (v <= baseVal + cfg.clearDelta)   baseVal += (v - baseVal) * cfg.slowAlpha;
+      else if (v <= baseVal + cfg.followDelta)  baseVal += (v - baseVal) * cfg.slowAlpha;
       if (baseVal > cfg.baselineMax) baseVal = cfg.baselineMax;
     }
     st = alertOn ? ALERT : NORMAL;
@@ -107,10 +125,10 @@ class GasDetector {
   DetectorConfig cfg;
   State st = WARMING_UP;
   bool alertOn = false, calibrated = false;
-  int hi = 0, lo = 0, errRun = 0, calCount = 0;
+  int hi = 0, lo = 0, errRun = 0, calCount = 0, calIdx = 0;
   float baseVal = 0;
   float cal[64];
-  uint32_t warmUntil = 0;
+  uint32_t warmUntil = 0, calStart = 0;
 
   void evaluate(float v, float level, float clearLevel) {
     if (v > level)            { hi++; lo = 0; }

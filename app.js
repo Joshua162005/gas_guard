@@ -95,6 +95,7 @@ function watch(id) {
 // ===== Render =====
 let lastSeen = 0;
 const OFFLINE_AFTER_S = 40;
+const STALE_AFTER_S = 120;
 const HINTS = {
   baseline_high: 'Clean-air level is too high for accurate readings. Turn the blue trimmer on the MQ-2 board slowly anticlockwise until it is about 800-1800, then restart the ESP32.',
   baseline_low: 'Clean-air level is very low. Turn the blue trimmer on the MQ-2 board slightly clockwise until it is about 800-1800, then restart the ESP32.'
@@ -115,7 +116,12 @@ function render(d) {
   // so its state is trusted as it is. Comparing the gas value to the limit here a second time
   // made one noisy reading raise a false alarm. Only old firmware without a state field
   // falls back to the plain comparison (done two lines above).
-  const danger = state === 'alert' || d.alert === true;
+  // Data that is already old when it arrives (page opened while the sensor is off, or the last
+  // report was a leak hours ago) is history, not a live leak: show it as offline, never alarm.
+  const ageS = d.updated ? (serverNow() - d.updated) / 1000 : 0;
+  const stale = ageS > STALE_AFTER_S;   // generous, so a phone with a wrong clock cannot hide a live leak
+  const reportedLeak = state === 'alert' || d.alert === true;
+  const danger = reportedLeak && (!stale || wasDanger);
   const waiting = !danger && (state === 'warming_up' || state === 'calibrating' || state === 'sensor_error');
   lastSeen = d.updated || 0;
   lastGas = gas;
@@ -139,6 +145,7 @@ function render(d) {
   if (danger && !wasDanger) alarm();
   if (!danger) { stopAlarm(); hidePopup(); silenced = false; }
   wasDanger = danger;
+  if (stale) tick();                    // old data: let the offline card replace the normal one
 }
 
 function tick() {
@@ -147,7 +154,7 @@ function tick() {
   $('upd').textContent = s < 60 ? 'updated ' + s + 's ago' : 'updated ' + Math.round(s / 60) + 'm ago';
   if (online && s <= OFFLINE_AFTER_S) return;
 
-  if (wasDanger) {
+  if (wasDanger && !silenced) {
     // The last report was a leak. Losing contact is not proof that it is over, so the alarm
     // and the red card stay until the sensor reports again or you press Silence.
     $('status').className = 'card status danger';
@@ -157,6 +164,7 @@ function tick() {
       : 'This phone lost its connection during a leak. Treat it as a leak.';
     return;
   }
+  wasDanger = false;
   $('status').className = 'card status offline';
   if (online) {
     $('statusMain').textContent = 'Sensor offline';
