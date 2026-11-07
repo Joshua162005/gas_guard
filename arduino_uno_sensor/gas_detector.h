@@ -9,7 +9,9 @@
 //   4. needs several readings in a row to start and to clear an alarm (no flapping),
 //   5. keeps a hard upper limit as a backstop if gas was already present at power-on.
 //
-// All values use a 0-4095 scale. Call update() once per second.
+// Values use whatever scale the caller picks (the Uno sketch uses the raw 0-1023 ADC scale; the
+// defaults below are for 0-4095). Call update() once per second.
+// Buffers are kept small (32 samples) so it fits in the Uno's 2 KB of RAM.
 #pragma once
 #include <stdint.h>
 #include <math.h>
@@ -18,7 +20,7 @@ enum State { SENSOR_ERROR, WARMING_UP, CALIBRATING, NORMAL, ALERT };
 
 struct DetectorConfig {
   uint32_t warmupMs         = 180000;   // heater warm-up after power-on, no alerts
-  int      calSamples       = 30;       // seconds of clean air used to learn the baseline (max 64)
+  int      calSamples       = 30;       // seconds of clean air used to learn the baseline (max 32)
   float    alertDelta       = 400;      // alarm this far above baseline
   float    clearDelta       = 150;      // alarm clears below baseline + this
   float    absAlarm         = 3600;     // always alarm above this, whatever the baseline
@@ -40,7 +42,7 @@ struct DetectorConfig {
 class GasDetector {
  public:
   explicit GasDetector(const DetectorConfig& c) : cfg(c) {
-    if (cfg.calSamples > 64) cfg.calSamples = 64;
+    if (cfg.calSamples > 32) cfg.calSamples = 32;
     if (cfg.calSamples < 1)  cfg.calSamples = 1;
     warmUntil = c.warmupMs;
   }
@@ -127,7 +129,7 @@ class GasDetector {
   bool alertOn = false, calibrated = false;
   int hi = 0, lo = 0, errRun = 0, calCount = 0, calIdx = 0;
   float baseVal = 0;
-  float cal[64];
+  float cal[32];
   uint32_t warmUntil = 0, calStart = 0;
 
   void evaluate(float v, float level, float clearLevel) {
@@ -139,7 +141,7 @@ class GasDetector {
   }
 
   static float median(float* a, int n) {
-    float t[64];
+    float t[32];
     for (int i = 0; i < n; i++) t[i] = a[i];
     for (int i = 1; i < n; i++) {                   // insertion sort
       float x = t[i]; int j = i - 1;

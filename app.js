@@ -97,8 +97,8 @@ let lastSeen = 0;
 const OFFLINE_AFTER_S = 40;
 const STALE_AFTER_S = 120;
 const HINTS = {
-  baseline_high: 'Clean-air level is too high for accurate readings. Turn the blue trimmer on the MQ-2 board slowly anticlockwise until it is about 800-1800, then restart the ESP32.',
-  baseline_low: 'Clean-air level is very low. Turn the blue trimmer on the MQ-2 board slightly clockwise until it is about 800-1800, then restart the ESP32.'
+  baseline_high: 'Clean-air level is too high for accurate readings. Turn the blue trimmer on the MQ-2 board slowly anticlockwise until it is about 800-1800, then press the reset button on the Arduino Uno.',
+  baseline_low: 'Clean-air level is very low. Turn the blue trimmer on the MQ-2 board slightly clockwise until it is about 800-1800, then press the reset button on the Arduino Uno.'
 };
 
 function render(d) {

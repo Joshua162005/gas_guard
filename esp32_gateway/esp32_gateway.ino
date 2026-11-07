@@ -1,24 +1,27 @@
-// GasGuard v2 - ESP32 + MQ-2  (no extra libraries needed)
+// GasGuard v3 - ESP32 GATEWAY (the online half: WiFi -> Firebase + phone push)
 //
-// WIRING
-//   MQ-2 VCC -> ESP32 VIN (5V)         MQ-2 GND -> ESP32 GND
-//   MQ-2 AO  -> 10k -> GPIO 34,  and GPIO 34 -> 20k -> GND   (divider: the pin only tolerates 3.3V)
-//   Optional local alarm (works with no WiFi): buzzer -> GPIO 26, LED + 220 ohm -> GPIO 27
-//   Add a 470-1000 uF capacitor across 5V/GND close to the sensor. The MQ-2 heater and the WiFi
-//   radio both pull current in bursts; without it the ESP32 can brown-out and reset at random.
+// The ESP32 does NOT read the gas sensor any more. The Arduino Uno (see ../arduino_uno_sensor)
+// reads the MQ-2, decides about leaks and sounds the local alarm. Once a second it sends the
+// result over a 3-wire serial link. This sketch checks each message, uploads it to Firebase for the
+// web app and sends ntfy pushes. If WiFi or the internet is down, the Uno's alarm still works.
 //
-// FIRST-TIME SETUP (this is what makes it accurate)
-//   1. Let the sensor run 10+ minutes in clean air (a fresh sensor needs hours, ideally 24 h).
-//   2. Watch the Serial Monitor (115200). It prints the clean-air level ("baseline").
-//   3. Turn the blue trimmer on the MQ-2 board until the baseline is about 800-1800.
-//      A baseline above ~2600 sits in the part of the ESP32 ADC that is badly compressed, so
-//      gas barely changes the reading. The old sketch ran at 3000-3150, which is why it was
-//      inaccurate. Reboot after turning the trimmer so the level is learned again.
+// Upload this sketch to the ESP32. Open ONLY this folder in the Arduino IDE
+// (board "ESP32 Dev Module"). No extra libraries are needed.
+//
+// WIRING (full diagram in README.md)
+//   Uno pin 11 (TX) -> 10k -> node -> ESP32 GPIO 16 (RX2);   node -> 10k + 10k in series -> GND
+//   ESP32 GPIO 17 (TX2) -> Uno pin 10 (RX)    (direct; not used yet, kept for later)
+//   Uno GND <-> ESP32 GND                     (required)
+//   The divider is required: the Uno sends 5V and the ESP32 pin only tolerates 3.3V.
+//   Power both boards from one good 5V supply (1-2 A) with the grounds joined.
+//
+// If a WROVER module is used, GPIO 16/17 are taken by its PSRAM: change LINK_RX_PIN/LINK_TX_PIN.
+
 #include <WiFi.h>
 #include <WiFiClientSecure.h>
 #include <HTTPClient.h>
 #include <esp_system.h>
-#include "gas_detector.h"
+#include "uno_link.h"
 
 const char* WIFI_SSID = "HUERTE WIFI";
 const char* WIFI_PASS = "sfvigv7580";
@@ -33,22 +36,13 @@ const char* DEVICE_ID = "gas-001";                                           // 
 // Free phone push: install the "ntfy" app, subscribe to this topic (make it unique!)
 const char* NTFY_TOPIC = "gasguard-joshua-change-me";
 
-const int MQ2_PIN    = 34;   // must be an ADC1 pin (32-39). ADC2 stops working while WiFi is on.
-const int BUZZER_PIN = 26;   // local alarm, works without WiFi. Set to -1 if you do not use one.
-const int LED_PIN    = 27;   // set to -1 if you do not use one.
+// ---- Link to the Uno ----------------------------------------------------------------------
+const int           LINK_RX_PIN     = 16;       // RX2  <- Uno pin 11 through the 10k + 20k divider
+const int           LINK_TX_PIN     = 17;       // TX2  -> Uno pin 10 (not used yet)
+const unsigned long LINK_BAUD       = 9600;
+const unsigned long LINK_TIMEOUT_MS = 10000UL;  // no valid message for 10 s = Uno link lost
 
-// ---- Detection tuning (0-4095 scale, see gas_detector.h) -------------------------------
-// The alarm level is the learned clean-air level + ALERT_DELTA, so it follows your sensor
-// instead of being a fixed number.  More sensitive: lower ALERT_DELTA.  Fewer false alarms: raise it.
-const float ALERT_DELTA       = 400;
-const float CLEAR_DELTA       = 150;      // alarm clears below clean air + 150
-const float ABS_ALARM         = 3600;     // hard limit, always alarms (backstop)
-const int   ALERT_ON_COUNT    = 5;        // seconds in a row above the limit
-const int   ALERT_OFF_COUNT   = 10;       // seconds in a row below the clear level
-const unsigned long WARMUP_MS = 180000UL; // no alerts while the heater warms up after power-on
-
-// ---- Timing / network -----------------------------------------------------------------
-const unsigned long SAMPLE_MS        = 1000UL;     // sensor is read every second, independent of WiFi
+// ---- Timing / network ---------------------------------------------------------------------
 const unsigned long SEND_INTERVAL_MS = 5000UL;     // Firebase update (also sent at once when the state changes)
 const unsigned long PUSH_REPEAT_MS   = 60000UL;    // phone push repeats once a minute during a leak
 const unsigned long RELOGIN_MS       = 3000000UL;  // Firebase tokens last 60 min, refresh at 50
@@ -56,63 +50,69 @@ const unsigned long HTTP_TIMEOUT_MS  = 4000UL;
 const unsigned long WIFI_RESTART_MS  = 1800000UL;  // reboot if WiFi is gone 30 min (never during a leak)
 const unsigned long SENSOR_FAULT_PUSH_MS = 120000UL;
 
-// ---- Shared between the sensor loop (core 1) and the network task (core 0) --------------
+// ---- Latest message from the Uno, shared between loop() (core 1) and the network task (core 0)
 struct Snapshot {
-  int gas = 0, threshold = 0, baseline = 0;
-  State state = WARMING_UP;
-  const char* warn = "";
-  uint32_t seq = 0;
+  int  gas = 0, threshold = 0, baseline = 0;
+  char state[16] = "warming_up";
+  char warn[16]  = "";
+  bool hasFrame = false;                 // at least one valid message received since boot
+  unsigned long lastFrameMs = 0;
 };
 Snapshot snap;
 SemaphoreHandle_t snapLock;
 
-GasDetector* detector;
+Snapshot getSnapshot() {
+  Snapshot c;
+  xSemaphoreTake(snapLock, portMAX_DELAY);
+  c = snap;
+  xSemaphoreGive(snapLock);
+  return c;
+}
+bool isAlert(const Snapshot& s)       { return strcmp(s.state, "alert") == 0; }
+bool isSensorError(const Snapshot& s) { return strcmp(s.state, "sensor_error") == 0; }
+bool linkLost(const Snapshot& s, unsigned long now) {
+  return !s.hasFrame || (now - s.lastFrameMs) > LINK_TIMEOUT_MS;
+}
 
-const char* stateName(State s) {
-  switch (s) {
-    case SENSOR_ERROR: return "sensor_error";
-    case WARMING_UP:   return "warming_up";
-    case CALIBRATING:  return "calibrating";
-    case NORMAL:       return "normal";
-    case ALERT:        return "alert";
+// ===== Reading the Uno (non-blocking, called from loop) =====================================
+unsigned long badFrames = 0;
+void readUnoLink() {
+  static char line[80];
+  static size_t n = 0;
+  while (Serial2.available()) {
+    char c = (char)Serial2.read();
+    if (c == '\n' || c == '\r') {
+      if (n == 0) continue;
+      line[n] = 0;
+      n = 0;
+      UnoFrame f;
+      if (parseUnoFrame(line, f)) {
+        xSemaphoreTake(snapLock, portMAX_DELAY);
+        snap.gas = f.gas; snap.threshold = f.threshold; snap.baseline = f.baseline;
+        strcpy(snap.state, f.state); strcpy(snap.warn, f.warn);
+        snap.hasFrame = true; snap.lastFrameMs = millis();
+        xSemaphoreGive(snapLock);
+        Serial.printf("Uno: gas %4d | clean air %4d | alarm at %4d | %s%s%s\n",
+                      f.gas, f.baseline, f.threshold, f.state, f.warn[0] ? " | " : "", f.warn);
+      } else {
+        badFrames++;
+        Serial.printf("Uno link: ignored a damaged message (%lu so far)\n", badFrames);
+      }
+    } else if (n < sizeof(line) - 1) {
+      line[n++] = c;
+    } else {
+      n = 0;                              // too long to be ours: start over
+    }
   }
-  return "unknown";
 }
 
-// ===== Sensor =============================================================================
-// Why not plain analogRead(): the ESP32 ADC is noisy and non-linear. We take 32 readings in
-// calibrated millivolts, drop the 8 lowest and 8 highest (spikes from the WiFi radio), and
-// average the rest. The result is mapped to 0-4095 so the web app's gauge still works.
-float readGas() {
-  const int N = 32;
-  uint16_t s[N];
-  for (int i = 0; i < N; i++) { s[i] = analogReadMilliVolts(MQ2_PIN); delayMicroseconds(400); }
-  for (int i = 1; i < N; i++) {
-    uint16_t x = s[i]; int j = i - 1;
-    while (j >= 0 && s[j] > x) { s[j + 1] = s[j]; j--; }
-    s[j + 1] = x;
-  }
-  long sum = 0;
-  for (int i = N / 4; i < N - N / 4; i++) sum += s[i];
-  float mv = (float)sum / (N - 2 * (N / 4));
-  return mv * (4095.0f / 3300.0f);
-}
-
-void updateLocalAlarm(uint32_t now) {
-  bool beat = ((now / 250) % 2) == 0;                       // 2 beeps per second
-  bool alarm = detector->alert();
-  bool fault = detector->state() == SENSOR_ERROR;
-  if (BUZZER_PIN >= 0) digitalWrite(BUZZER_PIN, alarm && beat);
-  if (LED_PIN >= 0)    digitalWrite(LED_PIN, alarm ? beat : (fault && ((now / 1000) % 2) == 0));
-}
-
-// ===== Network (runs on its own core, so a slow WiFi never delays the alarm) ================
+// ===== Network (runs on its own core, so a slow WiFi never blocks reading the Uno) ==========
 String idToken = "";
 WiFiClientSecure fbClient;                 // kept open between updates: much faster and lighter than a new TLS handshake each time
 unsigned long lastLogin = 0, lastSend = 0, nextLoginTry = 0, nextWifiKick = 0, wifiLostAt = 0;
 unsigned long nextPushAt = 0, sensorFaultSince = 0;
 bool alertWasOn = false, faultPushed = false;
-State lastSentState = WARMING_UP;
+char lastSentState[16] = "";
 int failStreak = 0;
 
 // Tiny JSON helper so no extra library is needed: returns the string value of "key".
@@ -129,14 +129,6 @@ String jsonString(const String& json, const char* key) {
   return json.substring(s + 1, e);
 }
 
-Snapshot getSnapshot() {
-  Snapshot c;
-  xSemaphoreTake(snapLock, portMAX_DELAY);
-  c = snap;
-  xSemaphoreGive(snapLock);
-  return c;
-}
-
 bool wifiOk() {
   if (WiFi.status() == WL_CONNECTED) { wifiLostAt = 0; return true; }
   unsigned long now = millis();
@@ -147,7 +139,7 @@ bool wifiOk() {
     WiFi.disconnect(false);
     WiFi.begin(WIFI_SSID, WIFI_PASS);
   }
-  if (now - wifiLostAt > WIFI_RESTART_MS && getSnapshot().state != ALERT) ESP.restart();
+  if (now - wifiLostAt > WIFI_RESTART_MS && !isAlert(getSnapshot())) ESP.restart();
   return false;
 }
 
@@ -180,11 +172,11 @@ bool sendReading(const Snapshot& s) {
   char body[420];
   snprintf(body, sizeof(body),
     "{\"gas\":%d,\"threshold\":%d,\"baseline\":%d,\"state\":\"%s\",\"sensorOk\":%s,\"warmingUp\":%s,"
-    "\"alert\":%s,\"warn\":\"%s\",\"rssi\":%d,\"uptime\":%lu,\"fw\":2,\"updated\":{\".sv\":\"timestamp\"}}",
-    s.gas, s.threshold, s.baseline, stateName(s.state),
-    s.state != SENSOR_ERROR ? "true" : "false",
-    s.state == WARMING_UP ? "true" : "false",
-    s.state == ALERT ? "true" : "false",
+    "\"alert\":%s,\"warn\":\"%s\",\"rssi\":%d,\"uptime\":%lu,\"fw\":3,\"updated\":{\".sv\":\"timestamp\"}}",
+    s.gas, s.threshold, s.baseline, s.state,
+    isSensorError(s) ? "false" : "true",
+    strcmp(s.state, "warming_up") == 0 ? "true" : "false",
+    isAlert(s) ? "true" : "false",
     s.warn, WiFi.RSSI(), millis() / 1000UL);
 
   String url = String(DB_URL) + "/devices/" + DEVICE_ID + ".json?auth=" + idToken + "&print=silent";
@@ -240,7 +232,20 @@ bool sendPush(const char* title, const char* msg, const char* priority, const ch
 
 void handlePushes(const Snapshot& s) {
   unsigned long now = millis();
-  if (s.state == ALERT) {
+
+  // No messages from the Uno: we do not know the air quality. The Uno still sounds its own alarm.
+  // Do not announce "back to normal" here: silence is not proof that a leak is over.
+  if (linkLost(s, now)) {
+    if (!sensorFaultSince) sensorFaultSince = now;
+    if (!faultPushed && now - sensorFaultSince > SENSOR_FAULT_PUSH_MS) {
+      faultPushed = sendPush("GasGuard: sensor not reporting",
+                             "The ESP32 is not receiving data from the Arduino Uno. Check the 3 link wires and the Uno power. The Uno alarm still works locally.",
+                             "high", "warning");
+    }
+    return;
+  }
+
+  if (isAlert(s)) {
     if (!alertWasOn) { alertWasOn = true; nextPushAt = now; }
     if ((long)(now - nextPushAt) >= 0) {
       char msg[120];
@@ -253,8 +258,8 @@ void handlePushes(const Snapshot& s) {
     sendPush("Gas level back to normal", "The reading dropped below the leak limit.", "default", "white_check_mark");
   }
 
-  // A dead sensor means no protection at all, so say so.
-  if (s.state == SENSOR_ERROR) {
+  // A dead MQ-2 means no protection at all, so say so.
+  if (isSensorError(s)) {
     if (!sensorFaultSince) sensorFaultSince = now;
     if (!faultPushed && now - sensorFaultSince > SENSOR_FAULT_PUSH_MS) {
       faultPushed = sendPush("GasGuard: sensor not working", "The MQ-2 is not detected. Check its wiring and power. You are NOT protected.", "high", "warning");
@@ -272,11 +277,13 @@ void netLoop() {
   }
 
   Snapshot s = getSnapshot();
-  if (s.state != lastSentState || now - lastSend >= SEND_INTERVAL_MS) {
+  // Only upload live data. With the link down nothing is sent, so the web app shows "Sensor offline"
+  // (or keeps a leak alarm on if the last report was a leak) instead of an old reading.
+  if (!linkLost(s, now) && (strcmp(s.state, lastSentState) != 0 || now - lastSend >= SEND_INTERVAL_MS)) {
     if ((long)(now - nextLoginTry) >= 0) {
       bool ok = sendReading(s);
       Serial.printf("Firebase: %s\n", ok ? "ok" : "failed");
-      if (ok) { lastSentState = s.state; lastSend = now; }
+      if (ok) { strcpy(lastSentState, s.state); lastSend = now; }
       else    { lastSend = now - SEND_INTERVAL_MS + 2000UL; }    // retry in 2 s
     }
   }
@@ -290,67 +297,23 @@ void netTask(void*) {
 // ===== Arduino entry points ================================================================
 void setup() {
   Serial.begin(115200);
-  if (BUZZER_PIN >= 0) { pinMode(BUZZER_PIN, OUTPUT); digitalWrite(BUZZER_PIN, LOW); }
-  if (LED_PIN >= 0)    { pinMode(LED_PIN, OUTPUT);    digitalWrite(LED_PIN, LOW); }
-
-  analogReadResolution(12);
-  analogSetPinAttenuation(MQ2_PIN, ADC_11db);   // full 0-3.3 V range
-  pinMode(MQ2_PIN, INPUT);
-
-  DetectorConfig cfg;
-  cfg.alertDelta = ALERT_DELTA;
-  cfg.clearDelta = CLEAR_DELTA;
-  cfg.absAlarm   = ABS_ALARM;
-  cfg.onCount    = ALERT_ON_COUNT;
-  cfg.offCount   = ALERT_OFF_COUNT;
-  cfg.warmupMs   = WARMUP_MS;
-  // After a software restart the heater never lost power, so it is already warm.
-  if (esp_reset_reason() == ESP_RST_SW) cfg.warmupMs = 20000UL;
-  detector = new GasDetector(cfg);
+  Serial2.begin(LINK_BAUD, SERIAL_8N1, LINK_RX_PIN, LINK_TX_PIN);
   snapLock = xSemaphoreCreateMutex();
   fbClient.setInsecure();                       // the long-lived Firebase connection (see the note in firebaseLogin)
 
-  // WiFi is started here but NOT waited for: sensing and the local alarm must work without it.
+  // WiFi is started here but NOT waited for: reading the Uno must never wait for the router.
   WiFi.mode(WIFI_STA);
   WiFi.persistent(false);
   WiFi.setAutoReconnect(true);
   WiFi.setSleep(false);                         // modem sleep causes dropped connections
-  WiFi.setTxPower(WIFI_POWER_15dBm);            // 11 dBm was too weak for reliable range; lower it again only if you still get brown-outs
+  WiFi.setTxPower(WIFI_POWER_15dBm);            // lower it again only if you still get brown-outs
   WiFi.begin(WIFI_SSID, WIFI_PASS);
 
   xTaskCreatePinnedToCore(netTask, "net", 16384, NULL, 1, NULL, 0);
-  Serial.printf("GasGuard v2 started. Warming up the MQ-2 for %lu s, then learning clean air for 30 s.\n", cfg.warmupMs / 1000UL);
+  Serial.println("GasGuard v3 gateway started. Waiting for data from the Arduino Uno...");
 }
 
 void loop() {
-  static unsigned long lastSample = 0;
-  static State lastState = WARMING_UP;
-  unsigned long now = millis();
-
-  if (now - lastSample >= SAMPLE_MS) {
-    lastSample = now;
-    float gas = readGas();
-    detector->update(gas, now);
-    State st = detector->state();
-
-    xSemaphoreTake(snapLock, portMAX_DELAY);
-    snap.gas = (int)(gas + 0.5f);
-    snap.threshold = (int)(detector->alarmLevel() + 0.5f);
-    snap.baseline = (int)(detector->baseline() + 0.5f);
-    snap.state = st;
-    snap.warn = detector->warn();
-    snap.seq++;
-    xSemaphoreGive(snapLock);
-
-    Serial.printf("Gas: %4d | clean air: %4d | alarm at: %4d | %s%s%s\n",
-                  (int)(gas + 0.5f), (int)(detector->baseline() + 0.5f), (int)(detector->alarmLevel() + 0.5f),
-                  stateName(st), detector->warn()[0] ? " | " : "", detector->warn());
-    if (lastState == CALIBRATING && st == NORMAL) {
-      Serial.printf("Clean-air level learned: %d.\n", (int)(detector->baseline() + 0.5f));
-      if (detector->warn()[0]) Serial.println("Turn the trimmer on the MQ-2 so the clean-air level is about 800-1800, then reboot (see top of this file).");
-    }
-    lastState = st;
-  }
-  updateLocalAlarm(now);
+  readUnoLink();
   delay(10);
 }

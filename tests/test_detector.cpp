@@ -1,5 +1,5 @@
 // Run on a PC:  g++ -std=c++11 -O1 -o /tmp/t tests/test_detector.cpp && /tmp/t
-#include "../esp32_gas_sensor/gas_detector.h"
+#include "../arduino_uno_sensor/gas_detector.h"
 #include <cstdio>
 #include <cstdlib>
 #include <random>
@@ -91,6 +91,31 @@ int main(){
   { Sim s; for(int i=0;i<181;i++) s.step(1200+noise(15));
     for(int i=0;i<40;i++) s.step(1200+200.0f*(i%2)+noise(15));   // swinging +-200
     CHECK(s.d.state()==CALIBRATING,"still calibrating while readings swing"); }
+
+  // ---- Same settings the Uno sketch uses (raw 0-1023 ADC scale) ----
+  auto unoCfg=[](){ DetectorConfig c; c.warmupMs=180000; c.alertDelta=100; c.clearDelta=50; c.absAlarm=900;
+    c.baselineMax=800; c.baselineWarnLow=62; c.baselineWarnHigh=650; c.errLow=8; c.errHigh=1012;
+    c.onCount=3; c.offCount=10; c.followDelta=62; c.calSpread=30; return c; };
+  struct USim { GasDetector d; uint32_t t=0; int alerts=0; bool prev=false; int firstAlertAt=-1;
+    USim(const DetectorConfig& c):d(c){}
+    void step(float v){ d.update(v,t*1000u); if(d.alert()&&!prev){alerts++; if(firstAlertAt<0)firstAlertAt=t;} prev=d.alert(); t++; } };
+
+  printf("T14 Uno scale: clean air 300 with noise +-4 for 4 h, slow drift +25/h, no false alarm\n");
+  { USim s(unoCfg()); for(int i=0;i<4*3600;i++) s.step(300+25.0f*i/3600+noise(4));
+    CHECK(s.alerts==0,"no false alarm on Uno scale"); CHECK(s.d.state()==NORMAL,"state NORMAL"); }
+
+  printf("T15 Uno scale: leak +250 after 10 min is caught within 5 s and clears afterwards\n");
+  { USim s(unoCfg()); for(int i=0;i<600;i++) s.step(300+noise(4));
+    int t0=s.t; for(int i=0;i<120;i++) s.step(550+noise(4));
+    printf("  alert started %d s after gas arrived\n", s.firstAlertAt-t0);
+    CHECK(s.firstAlertAt>=0 && s.firstAlertAt-t0<=5,"alarm within 5 s");
+    for(int i=0;i<30;i++) s.step(300+noise(4));
+    CHECK(!s.d.alert(),"alarm cleared"); }
+
+  printf("T16 Uno scale: sensor unplugged (floating A1 reads ~0) gives a fault, not 'Safe'\n");
+  { USim s(unoCfg()); for(int i=0;i<600;i++) s.step(300+noise(4));
+    for(int i=0;i<10;i++) s.step(2);
+    CHECK(s.d.state()==SENSOR_ERROR,"sensor_error reported"); }
 
   printf("\n%s (%d failures)\n", fails?"FAILED":"ALL PASSED", fails); return fails?1:0;
 }
